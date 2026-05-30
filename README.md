@@ -10,13 +10,14 @@ The agent never holds your Anthropic credentials. It just makes standard Anthrop
 
 ## Features
 
-- **Built-in chat UI** — open the app's URL in a browser for a polished chat client with markdown rendering, drag & drop / paste uploads, and image previews. No separate frontend to deploy.
-- **Image + file uploads** — send images (Claude vision), PDFs (document blocks), and text files (inlined) alongside your message.
-- **HTTP/webhook API** — `POST /chat` to send a message and get a reply; drive it from any app, not just the browser.
+- **3-pane chat app** — open the app's URL in a browser for a full client: a **history sidebar** (switch / rename / delete conversations), the chat, and an **artifact preview pane**.
+- **Artifact preview** — code the AI produces appears on the right with copy + download; HTML/SVG can be rendered live in a sandboxed frame; referenced images preview inline.
+- **Persistent conversations** — every chat is saved to disk and reloads after restarts/redeploys (mount a volume at `DATA_DIR`). Pick up any past conversation, with its images and context intact.
+- **Image + file uploads** — drag & drop, paste, or 📎 to send images (Claude vision), PDFs (document blocks), and text files (inlined).
+- **HTTP/webhook API** — `POST /chat` to drive it from any app, not just the browser.
 - **Tool calling** — Claude can invoke registered tools mid-conversation. Ships with `get_current_time` and `fetch_url` as examples; add your own in `src/tools/`.
-- **Session memory** — pass a `sessionId` to keep a conversation going (in-memory, swappable for SQLite/Redis).
-- **Optional bearer auth** — protect the endpoint once it's exposed.
-- **Production-ready container** — multi-stage Dockerfile, non-root user, healthcheck. Deploys to Coolify as-is.
+- **Optional bearer auth** — protect the endpoints once exposed.
+- **Production-ready container** — multi-stage Dockerfile, non-root user, healthcheck, persistent data volume. Deploys to Coolify as-is.
 
 ## Using the chat UI
 
@@ -65,10 +66,14 @@ curl -s localhost:3000/chat \
 
 | Method & path          | Body / params                          | Description                                  |
 | ---------------------- | -------------------------------------- | -------------------------------------------- |
-| `GET /`                | —                                      | Browser chat UI.                             |
+| `GET /`                | —                                      | Browser chat app.                            |
 | `GET /health`          | —                                      | Liveness + model/session/tool info.          |
-| `POST /chat`           | see below                              | Send a message; returns `{ sessionId, reply, toolsUsed }`. |
-| `DELETE /chat/:id`     | —                                      | Clear a conversation's history.              |
+| `GET /diag`            | —                                      | Tests whether the agent can reach Meridian.  |
+| `POST /chat`           | see below                              | Send a message; returns `{ sessionId, title, reply, toolsUsed }`. |
+| `GET /sessions`        | —                                      | List saved conversations (metadata).         |
+| `GET /sessions/:id`    | —                                      | Get a conversation's display transcript.     |
+| `PATCH /sessions/:id`  | `{ "title": string }`                  | Rename a conversation.                       |
+| `DELETE /sessions/:id` | —                                      | Delete a conversation.                       |
 
 `POST /chat` body — provide a `message`, `attachments`, or both:
 
@@ -84,7 +89,7 @@ curl -s localhost:3000/chat \
 
 Attachments are routed by `mediaType`: `image/{jpeg,png,gif,webp}` → vision, `application/pdf` → document, anything else → decoded and inlined as text. The JSON body limit is 30 MB (the UI caps each file at 10 MB).
 
-If `AGENT_API_KEY` is set, send `Authorization: Bearer <key>` on every request except `GET /` and `GET /health`.
+If `AGENT_API_KEY` is set, send `Authorization: Bearer <key>` on every request except `GET /`, `GET /health`, and `GET /diag`.
 
 ## Environment variables
 
@@ -98,7 +103,7 @@ If `AGENT_API_KEY` is set, send `Authorization: Bearer <key>` on every request e
 | `MAX_TOKENS`          | `2048`                   | Max output tokens per response.                                             |
 | `SYSTEM_PROMPT`       | _(see `.env.example`)_   | System prompt defining the agent's behaviour.                              |
 | `MAX_TOOL_ITERATIONS` | `8`                      | Safety cap on tool-call round trips per request.                           |
-| `SESSION_TTL_MS`      | `3600000`                | Idle session lifetime before eviction (ms).                                |
+| `DATA_DIR`            | `./data` (`/app/data` in Docker) | Where conversations are persisted. Mount a volume here to keep history. |
 | `AGENT_API_KEY`       | _(unset)_                | If set, required as a bearer token. **Set this once exposed.**             |
 | `LOG_LEVEL`           | `info`                   | pino log level.                                                            |
 
@@ -115,14 +120,17 @@ That's it — the agent loop and API pick it up automatically.
 2. In Coolify, create a new **Application** from this Git repo. Coolify detects the Dockerfile and builds it (native arm64 on the Pi — no emulation).
 3. Set environment variables (above). Point `MERIDIAN_BASE_URL` at your Meridian service — if Meridian is another Coolify service on the same project network, use its internal name, e.g. `http://meridian:8080`.
 4. Set `AGENT_API_KEY` to a strong random value before exposing the app publicly.
-5. Coolify maps the container's port 3000; attach a domain if you want external access.
+5. **Add a persistent volume** mounted at `/app/data` (Coolify → Storage) so conversation history survives redeploys. Without it, history is wiped on every rebuild.
+6. Coolify maps the container's port 3000; attach a domain if you want external access.
 
 Keep the agent and Meridian as **separate services** so you can restart/update each independently.
 
 ## Notes & next steps
 
-- Session history is **in-memory** and cleared on restart. For durability or multiple instances, replace `src/sessions.ts` with a SQLite/Redis-backed store — the rest of the app only depends on its `getHistory`/`saveHistory`/`clearSession` functions.
+- Conversations are persisted as JSON files under `DATA_DIR` (one file per conversation, loaded into memory at boot). Great for a single-instance personal agent on a Pi. For multi-instance or high volume, swap `src/store.ts` for a SQLite/Postgres-backed implementation — the rest of the app only depends on its exported functions.
+- Stored history includes uploaded image bytes (base64), so reopening an old chat restores its image context. Watch `DATA_DIR` disk usage if you upload many large images.
 - The `fetch_url` tool fetches arbitrary public URLs. If you expose the agent to untrusted callers, consider allow-listing hosts to avoid SSRF against your internal network.
+- The artifact pane renders HTML/SVG in a `sandbox="allow-scripts"` iframe. Only run artifacts you trust.
 
 ## License
 

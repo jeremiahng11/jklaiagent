@@ -19,7 +19,9 @@ const envSchema = z.object({
       "You are a helpful AI assistant with access to tools. Use tools when they help answer the user accurately.",
     ),
   MAX_TOOL_ITERATIONS: z.coerce.number().int().positive().default(8),
-  SESSION_TTL_MS: z.coerce.number().int().positive().default(3_600_000),
+
+  /** Directory where conversations are persisted. Mount a volume here. */
+  DATA_DIR: z.string().min(1).default("./data"),
 
   AGENT_API_KEY: z
     .string()

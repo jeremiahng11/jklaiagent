@@ -1,9 +1,12 @@
 import { buildServer } from "./server.js";
 import { config } from "./config.js";
+import { initStore } from "./store.js";
 
 const app = buildServer();
 
 async function main(): Promise<void> {
+  const loaded = await initStore();
+  app.log.info({ conversations: loaded, dataDir: config.DATA_DIR }, "store ready");
   await app.listen({ port: config.PORT, host: config.HOST });
 }
 

@@ -1,19 +1,29 @@
-import { randomUUID } from "node:crypto";
 import type Anthropic from "@anthropic-ai/sdk";
 import Fastify, { type FastifyInstance } from "fastify";
 import { z } from "zod";
 import { config } from "./config.js";
 import { runAgent } from "./agent.js";
-import { buildUserContent } from "./content.js";
+import { buildUserContent, type Attachment } from "./content.js";
 import {
-  getHistory,
-  saveHistory,
-  clearSession,
-  sessionCount,
-  sweepExpiredSessions,
-} from "./sessions.js";
+  newId,
+  getConversation,
+  saveConversation,
+  renameConversation,
+  deleteConversation,
+  listConversations,
+  conversationCount,
+  messagesToTranscript,
+} from "./store.js";
 import { tools } from "./tools/index.js";
 import { chatPage } from "./ui.js";
+
+/** A conversation title from the first user input. */
+function deriveTitle(message: string, attachments: Attachment[]): string {
+  const t = message.trim();
+  if (t) return t.slice(0, 60);
+  if (attachments[0]?.name) return attachments[0].name;
+  return "New chat";
+}
 
 const attachmentSchema = z.object({
   name: z.string().max(256).default("file"),
@@ -74,7 +84,7 @@ export function buildServer(): FastifyInstance {
     status: "ok",
     model: config.ANTHROPIC_MODEL,
     meridianBaseUrl: config.MERIDIAN_BASE_URL,
-    sessions: sessionCount(),
+    sessions: conversationCount(),
     tools: tools.map((t) => t.name),
   }));
 
@@ -115,13 +125,16 @@ export function buildServer(): FastifyInstance {
         .send({ error: "invalid request", details: parsed.error.flatten() });
     }
 
-    const { message, attachments } = parsed.data;
-    const sessionId = parsed.data.sessionId ?? randomUUID();
-    const history = getHistory(sessionId);
+    const { message, attachments = [] } = parsed.data;
+    const existing = parsed.data.sessionId
+      ? getConversation(parsed.data.sessionId)
+      : null;
+    const sessionId = existing?.id ?? parsed.data.sessionId ?? newId();
+    const history = existing?.messages ?? [];
 
     let userContent: string | Anthropic.ContentBlockParam[];
     try {
-      userContent = buildUserContent(message, attachments ?? []);
+      userContent = buildUserContent(message, attachments);
     } catch (err) {
       const detail = err instanceof Error ? err.message : "bad attachment";
       return reply.code(400).send({ error: "invalid_attachment", detail });
@@ -129,35 +142,54 @@ export function buildServer(): FastifyInstance {
 
     try {
       const result = await runAgent(history, userContent, req.log);
-      saveHistory(sessionId, result.messages);
+      const conv = await saveConversation(
+        sessionId,
+        result.messages,
+        Date.now(),
+        deriveTitle(message, attachments),
+      );
       return {
         sessionId,
+        title: conv.title,
         reply: result.reply,
         toolsUsed: result.toolsUsed,
       };
     } catch (err) {
       req.log.error({ err }, "agent run failed");
-      const message = err instanceof Error ? err.message : "unknown error";
-      return reply
-        .code(502)
-        .send({ error: "agent_failed", detail: message, sessionId });
+      const detail = err instanceof Error ? err.message : "unknown error";
+      return reply.code(502).send({ error: "agent_failed", detail, sessionId });
     }
   });
 
-  // --- Reset a conversation. ---
-  app.delete("/chat/:sessionId", async (req, reply) => {
-    const { sessionId } = req.params as { sessionId: string };
-    const existed = clearSession(sessionId);
-    return reply.code(existed ? 200 : 404).send({ sessionId, cleared: existed });
+  // --- Conversation history management. ---
+  app.get("/sessions", async () => ({ sessions: listConversations() }));
+
+  app.get("/sessions/:id", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const conv = getConversation(id);
+    if (!conv) return reply.code(404).send({ error: "not_found" });
+    return {
+      id: conv.id,
+      title: conv.title,
+      updatedAt: conv.updatedAt,
+      transcript: messagesToTranscript(conv.messages),
+    };
   });
 
-  // Periodically evict idle sessions so memory doesn't grow unbounded.
-  const sweepTimer = setInterval(() => {
-    const removed = sweepExpiredSessions(Date.now());
-    if (removed > 0) app.log.debug({ removed }, "swept idle sessions");
-  }, 60_000);
-  sweepTimer.unref();
-  app.addHook("onClose", async () => clearInterval(sweepTimer));
+  app.patch("/sessions/:id", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = z.object({ title: z.string().min(1).max(120) }).safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: "invalid title" });
+    const conv = await renameConversation(id, body.data.title, Date.now());
+    if (!conv) return reply.code(404).send({ error: "not_found" });
+    return { id: conv.id, title: conv.title };
+  });
+
+  app.delete("/sessions/:id", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const existed = await deleteConversation(id);
+    return reply.code(existed ? 200 : 404).send({ id, deleted: existed });
+  });
 
   return app;
 }

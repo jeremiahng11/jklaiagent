@@ -20,14 +20,20 @@ RUN npm ci --omit=dev
 # --- Stage 3: minimal runtime image ---
 FROM node:22-bookworm-slim AS runtime
 ENV NODE_ENV=production
+# Conversations persist here — mount a volume at this path to keep history.
+ENV DATA_DIR=/app/data
 WORKDIR /app
-
-# Run as the non-root user that the node image already provides.
-USER node
 
 COPY --chown=node:node --from=deps /app/node_modules ./node_modules
 COPY --chown=node:node --from=build /app/dist ./dist
 COPY --chown=node:node package.json ./
+
+# Pre-create the data dir owned by the runtime user.
+RUN mkdir -p /app/data && chown -R node:node /app/data
+VOLUME ["/app/data"]
+
+# Run as the non-root user that the node image already provides.
+USER node
 
 EXPOSE 3000
 

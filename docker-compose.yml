@@ -15,6 +15,9 @@ services:
       SYSTEM_PROMPT: ${SYSTEM_PROMPT:-You are a helpful AI assistant with access to tools.}
       AGENT_API_KEY: ${AGENT_API_KEY:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      DATA_DIR: /app/data
+    volumes:
+      - agent-data:/app/data
     restart: unless-stopped
     # If Meridian is defined below, uncomment to wait for it:
     # depends_on:
@@ -31,3 +34,6 @@ services:
   #   volumes:
   #     - ~/.claude:/home/node/.claude        # mount your Claude Code session
   #   restart: unless-stopped
+
+volumes:
+  agent-data:
