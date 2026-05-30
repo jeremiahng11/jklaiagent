@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
+import type Anthropic from "@anthropic-ai/sdk";
 import Fastify, { type FastifyInstance } from "fastify";
 import { z } from "zod";
 import { config } from "./config.js";
 import { runAgent } from "./agent.js";
+import { buildUserContent } from "./content.js";
 import {
   getHistory,
   saveHistory,
@@ -11,14 +13,30 @@ import {
   sweepExpiredSessions,
 } from "./sessions.js";
 import { tools } from "./tools/index.js";
+import { chatPage } from "./ui.js";
 
-const chatBodySchema = z.object({
-  message: z.string().min(1, "message must not be empty"),
-  sessionId: z.string().min(1).optional(),
+const attachmentSchema = z.object({
+  name: z.string().max(256).default("file"),
+  mediaType: z.string().min(1).max(128),
+  /** base64-encoded file bytes (no data: prefix). */
+  data: z.string().min(1),
 });
+
+const chatBodySchema = z
+  .object({
+    message: z.string().default(""),
+    sessionId: z.string().min(1).optional(),
+    attachments: z.array(attachmentSchema).max(10).optional(),
+  })
+  .refine(
+    (d) => d.message.trim() !== "" || (d.attachments?.length ?? 0) > 0,
+    { message: "provide a message and/or at least one attachment" },
+  );
 
 export function buildServer(): FastifyInstance {
   const app = Fastify({
+    // Allow base64-encoded image/file uploads in the JSON body.
+    bodyLimit: 30 * 1024 * 1024,
     logger: {
       level: config.LOG_LEVEL,
       ...(process.env.NODE_ENV !== "production"
@@ -30,13 +48,21 @@ export function buildServer(): FastifyInstance {
   // --- Auth: require a bearer token on non-health routes when configured. ---
   app.addHook("onRequest", async (req, reply) => {
     if (!config.AGENT_API_KEY) return; // auth disabled
-    if (req.method === "GET" && req.url === "/health") return;
+    // The chat page and health check are public; the page itself sends the
+    // bearer token on its /chat calls.
+    const path = req.url.split("?")[0];
+    if (req.method === "GET" && (path === "/" || path === "/health")) return;
 
     const header = req.headers.authorization ?? "";
     const token = header.startsWith("Bearer ") ? header.slice(7) : "";
     if (token !== config.AGENT_API_KEY) {
       return reply.code(401).send({ error: "unauthorized" });
     }
+  });
+
+  // Browser chat UI.
+  app.get("/", async (_req, reply) => {
+    return reply.type("text/html; charset=utf-8").send(chatPage);
   });
 
   app.get("/health", async () => ({
@@ -55,12 +81,20 @@ export function buildServer(): FastifyInstance {
         .send({ error: "invalid request", details: parsed.error.flatten() });
     }
 
-    const { message } = parsed.data;
+    const { message, attachments } = parsed.data;
     const sessionId = parsed.data.sessionId ?? randomUUID();
     const history = getHistory(sessionId);
 
+    let userContent: string | Anthropic.ContentBlockParam[];
     try {
-      const result = await runAgent(history, message, req.log);
+      userContent = buildUserContent(message, attachments ?? []);
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : "bad attachment";
+      return reply.code(400).send({ error: "invalid_attachment", detail });
+    }
+
+    try {
+      const result = await runAgent(history, userContent, req.log);
       saveHistory(sessionId, result.messages);
       return {
         sessionId,

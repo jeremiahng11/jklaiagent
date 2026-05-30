@@ -10,11 +10,21 @@ The agent never holds your Anthropic credentials. It just makes standard Anthrop
 
 ## Features
 
-- **HTTP/webhook API** — `POST /chat` to send a message and get a reply.
+- **Built-in chat UI** — open the app's URL in a browser for a polished chat client with markdown rendering, drag & drop / paste uploads, and image previews. No separate frontend to deploy.
+- **Image + file uploads** — send images (Claude vision), PDFs (document blocks), and text files (inlined) alongside your message.
+- **HTTP/webhook API** — `POST /chat` to send a message and get a reply; drive it from any app, not just the browser.
 - **Tool calling** — Claude can invoke registered tools mid-conversation. Ships with `get_current_time` and `fetch_url` as examples; add your own in `src/tools/`.
 - **Session memory** — pass a `sessionId` to keep a conversation going (in-memory, swappable for SQLite/Redis).
 - **Optional bearer auth** — protect the endpoint once it's exposed.
 - **Production-ready container** — multi-stage Dockerfile, non-root user, healthcheck. Deploys to Coolify as-is.
+
+## Using the chat UI
+
+Open the app's URL (the Coolify domain, or `http://localhost:3000` locally) in a browser. You can:
+
+- Type a message and press **Enter** (Shift+Enter for a newline).
+- **Attach files** with the 📎 button, **drag & drop** onto the input, or **paste** an image from the clipboard.
+- If the server has `AGENT_API_KEY` set, open **⚙ Settings** once and paste the token — it's stored in your browser and sent automatically.
 
 ## Tech stack
 
@@ -55,11 +65,26 @@ curl -s localhost:3000/chat \
 
 | Method & path          | Body / params                          | Description                                  |
 | ---------------------- | -------------------------------------- | -------------------------------------------- |
+| `GET /`                | —                                      | Browser chat UI.                             |
 | `GET /health`          | —                                      | Liveness + model/session/tool info.          |
-| `POST /chat`           | `{ "message": string, "sessionId"? }`  | Send a message; returns `{ sessionId, reply, toolsUsed }`. |
+| `POST /chat`           | see below                              | Send a message; returns `{ sessionId, reply, toolsUsed }`. |
 | `DELETE /chat/:id`     | —                                      | Clear a conversation's history.              |
 
-If `AGENT_API_KEY` is set, send `Authorization: Bearer <key>` on every request except `/health`.
+`POST /chat` body — provide a `message`, `attachments`, or both:
+
+```jsonc
+{
+  "message": "What's in this image?",
+  "sessionId": "optional-to-continue-a-conversation",
+  "attachments": [
+    { "name": "photo.png", "mediaType": "image/png", "data": "<base64 bytes, no data: prefix>" }
+  ]
+}
+```
+
+Attachments are routed by `mediaType`: `image/{jpeg,png,gif,webp}` → vision, `application/pdf` → document, anything else → decoded and inlined as text. The JSON body limit is 30 MB (the UI caps each file at 10 MB).
+
+If `AGENT_API_KEY` is set, send `Authorization: Bearer <key>` on every request except `GET /` and `GET /health`.
 
 ## Environment variables
 

@@ -33,12 +33,12 @@ function textFrom(content: Anthropic.ContentBlock[]): string {
  */
 export async function runAgent(
   history: Anthropic.MessageParam[],
-  userMessage: string,
+  userContent: string | Anthropic.ContentBlockParam[],
   log: FastifyBaseLogger,
 ): Promise<AgentResult> {
   const messages: Anthropic.MessageParam[] = [
     ...history,
-    { role: "user", content: userMessage },
+    { role: "user", content: userContent },
   ];
   const toolsUsed: string[] = [];
 
