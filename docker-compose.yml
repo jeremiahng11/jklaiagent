@@ -1,0 +1,33 @@
+# Local-dev compose. On the Pi, Coolify builds the Dockerfile directly — but
+# this mirrors the runtime so you can test the full path locally.
+services:
+  agent:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: 3000
+      HOST: 0.0.0.0
+      # When Meridian runs in this same compose/network, use its service name.
+      MERIDIAN_BASE_URL: ${MERIDIAN_BASE_URL:-http://meridian:8080}
+      MERIDIAN_API_KEY: ${MERIDIAN_API_KEY:-meridian}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-6}
+      SYSTEM_PROMPT: ${SYSTEM_PROMPT:-You are a helpful AI assistant with access to tools.}
+      AGENT_API_KEY: ${AGENT_API_KEY:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    restart: unless-stopped
+    # If Meridian is defined below, uncomment to wait for it:
+    # depends_on:
+    #   - meridian
+
+  # --- OPTIONAL: run Meridian here too, if you aren't already running it ---
+  # Meridian needs access to your Claude Code credentials/session. Adjust the
+  # image and volume mounts to match your Meridian setup (see rynfar/meridian).
+  #
+  # meridian:
+  #   image: ghcr.io/rynfar/meridian:latest   # replace with the tag you use
+  #   ports:
+  #     - "8080:8080"
+  #   volumes:
+  #     - ~/.claude:/home/node/.claude        # mount your Claude Code session
+  #   restart: unless-stopped
