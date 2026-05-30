@@ -51,7 +51,12 @@ export function buildServer(): FastifyInstance {
     // The chat page and health check are public; the page itself sends the
     // bearer token on its /chat calls.
     const path = req.url.split("?")[0];
-    if (req.method === "GET" && (path === "/" || path === "/health")) return;
+    if (
+      req.method === "GET" &&
+      (path === "/" || path === "/health" || path === "/diag")
+    ) {
+      return;
+    }
 
     const header = req.headers.authorization ?? "";
     const token = header.startsWith("Bearer ") ? header.slice(7) : "";
@@ -68,9 +73,38 @@ export function buildServer(): FastifyInstance {
   app.get("/health", async () => ({
     status: "ok",
     model: config.ANTHROPIC_MODEL,
+    meridianBaseUrl: config.MERIDIAN_BASE_URL,
     sessions: sessionCount(),
     tools: tools.map((t) => t.name),
   }));
+
+  // --- Connectivity diagnostics: can THIS container reach Meridian? ---
+  // Any HTTP response (even 404) proves the network hop works; only a thrown
+  // error means the agent can't open a connection to MERIDIAN_BASE_URL.
+  app.get("/diag", async () => {
+    const target = config.MERIDIAN_BASE_URL;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    try {
+      const res = await fetch(target, { signal: controller.signal });
+      return {
+        meridianBaseUrl: target,
+        reachable: true,
+        status: res.status,
+        hint: "Network hop works. If chat still fails, check MERIDIAN_API_KEY / model / Meridian logs.",
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return {
+        meridianBaseUrl: target,
+        reachable: false,
+        error: message,
+        hint: "Container cannot open a connection. Likely: Meridian bound to 127.0.0.1 (set it to 0.0.0.0), wrong host/port, env not applied (redeploy), or a host firewall.",
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+  });
 
   // --- Main agent endpoint. POST a message, get a reply. ---
   app.post("/chat", async (req, reply) => {
