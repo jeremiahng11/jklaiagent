@@ -57,8 +57,15 @@ export const chatPage = `<!doctype html>
   .main { flex:1; display:flex; flex-direction:column; min-width:0; min-height:0; }
   main { flex:1; overflow-y:auto; }
   #chat { max-width:820px; margin:0 auto; padding:24px 16px 16px; display:flex; flex-direction:column; gap:16px; }
-  .blank { color:var(--muted); text-align:center; margin-top:12vh; }
+  .blank { color:var(--muted); text-align:center; margin-top:9vh; }
   .blank h2 { color:var(--text); font-weight:600; }
+  .starters { display:grid; grid-template-columns:repeat(auto-fit,minmax(158px,1fr)); gap:10px; margin-top:26px; text-align:left; }
+  .starter { display:flex; flex-direction:column; gap:4px; padding:14px; border:1px solid var(--border); background:var(--panel); color:var(--text); border-radius:12px; cursor:pointer; font:inherit; transition:border-color .15s,background .15s,transform .1s; }
+  .starter:hover { border-color:var(--accent); background:var(--panel2); }
+  .starter:active { transform:translateY(1px); }
+  .starter .ic { font-size:22px; }
+  .starter .tl { font-weight:600; font-size:14px; }
+  .starter .ds { font-size:12px; color:var(--muted); line-height:1.4; }
   .turn { display:flex; gap:12px; align-items:flex-start; }
   .turn.user { flex-direction:row-reverse; }
   .avatar { flex:0 0 30px; width:30px; height:30px; border-radius:8px; display:grid; place-items:center; font-size:13px; font-weight:700; }
@@ -290,8 +297,46 @@ export const chatPage = `<!doctype html>
   $('artCopy').onclick = function(){ var a=artifacts[active]; if(a&&navigator.clipboard) navigator.clipboard.writeText(a.code); };
   $('artDownload').onclick = function(){ var a=artifacts[active]; if(!a) return; var ext=EXT[a.lang]||'txt'; var blob=new Blob([a.code],{type:'text/plain'}); var url=URL.createObjectURL(blob); var el=document.createElement('a'); el.href=url; el.download='artifact.'+ext; el.click(); setTimeout(function(){URL.revokeObjectURL(url);},1000); };
 
+  // ---------- starter templates ----------
+  // Each fills the composer with a tailored prompt the user can tweak before
+  // sending. They steer the agent toward self-contained HTML/SVG, which the
+  // preview pane on the right renders live.
+  var STARTERS = [
+    { icon:'🧾', title:'Invoice', desc:'Professional, print-ready',
+      prompt:'Create a professional invoice as a single self-contained HTML document (inline CSS, print-friendly). Include a company name/logo area, bill-to section, an itemised table (description, qty, unit price, amount), subtotal, tax, total, payment terms and notes. My business is: ' },
+    { icon:'📄', title:'Document', desc:'Proposal, report or letter',
+      prompt:'Write a polished one-page document as a single self-contained HTML page with clean typography and inline CSS, ready to print or export to PDF. The document is a: ' },
+    { icon:'🎨', title:'Logo', desc:'Clean vector SVG',
+      prompt:'Design a minimal, modern logo as a single self-contained SVG with a matching color palette, output as an SVG code block so I can preview and download it. The brand is: ' },
+    { icon:'🖥️', title:'Web UI', desc:'Responsive landing page',
+      prompt:'Build a responsive landing page as one self-contained HTML file (inline CSS, no external dependencies) with a hero, features section and call-to-action. Modern, polished design. The product is: ' },
+    { icon:'📱', title:'Mobile UI', desc:'App screen mockup',
+      prompt:'Design a mobile app screen as a self-contained HTML mockup sized for a phone (390x844), with a top bar, content area and bottom navigation, using inline CSS and a modern design system. The app screen is: ' },
+    { icon:'🚀', title:'App', desc:'Scaffold & build',
+      prompt:'Help me build an app. Propose a sensible stack, then scaffold the key files with complete, runnable code (one file per code block, filename above each). The app should: ' },
+  ];
+  function useStarter(text){
+    input.value=text;
+    input.style.height='auto'; input.style.height=Math.min(input.scrollHeight,200)+'px';
+    input.focus();
+    try { input.setSelectionRange(text.length, text.length); } catch(e) {}
+    scrollChat();
+  }
+
   // ---------- chat rendering ----------
-  function blank(){ chat.innerHTML='<div class="blank"><h2>Start a conversation</h2><div>Type a message, drag in a file, or paste an image.</div></div>'; }
+  function blank(){
+    chat.innerHTML='';
+    var wrap=document.createElement('div'); wrap.className='blank';
+    wrap.innerHTML='<h2>Start a conversation</h2><div>Pick a starter below, or type your own — you can also drag in a file or paste an image.</div>';
+    var grid=document.createElement('div'); grid.className='starters';
+    STARTERS.forEach(function(s){
+      var card=document.createElement('button'); card.className='starter'; card.type='button';
+      card.innerHTML='<span class="ic">'+s.icon+'</span><span class="tl">'+esc(s.title)+'</span><span class="ds">'+esc(s.desc)+'</span>';
+      card.onclick=function(){ useStarter(s.prompt); };
+      grid.appendChild(card);
+    });
+    wrap.appendChild(grid); chat.appendChild(wrap);
+  }
   function userTurn(opts){
     var t=document.createElement('div'); t.className='turn user';
     var a=document.createElement('div'); a.className='avatar'; a.textContent='You';
