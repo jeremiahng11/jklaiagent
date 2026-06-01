@@ -88,9 +88,17 @@ export const chatPage = `<!doctype html>
   .att-chip { display:inline-flex; align-items:center; gap:6px; background:rgba(0,0,0,.25); border:1px solid var(--border); border-radius:8px; padding:6px 10px; font-size:13px; }
   .tools { font-size:12px; color:var(--muted); margin-top:6px; }
   .err { color:var(--err); font-size:13px; }
-  .typing span { display:inline-block; width:6px; height:6px; margin:0 1px; background:var(--muted); border-radius:50%; animation:blink 1.2s infinite both; }
-  .typing span:nth-child(2){animation-delay:.2s} .typing span:nth-child(3){animation-delay:.4s}
+  /* Thinking indicator: animated JKL logo + cycling status text */
+  .thinking { display:flex; align-items:center; gap:10px; color:var(--muted); font-size:14px; }
+  .think-logo { width:24px; height:24px; flex:0 0 auto; animation:breathe 1.8s ease-in-out infinite; filter:drop-shadow(0 0 5px rgba(99,102,241,.55)); }
+  .think-logo svg { width:100%; height:100%; display:block; }
+  .think-logo .spark { transform-box:fill-box; transform-origin:center; animation:twinkle 1.6s ease-in-out infinite; }
+  .think-text { font-weight:500; transition:opacity .25s; }
+  .dots i { font-style:normal; opacity:.2; animation:blink 1.2s infinite both; }
+  .dots i:nth-child(2){animation-delay:.2s} .dots i:nth-child(3){animation-delay:.4s}
   @keyframes blink { 0%,80%,100%{opacity:.2} 40%{opacity:1} }
+  @keyframes breathe { 0%,100%{transform:scale(.9)} 50%{transform:scale(1.05)} }
+  @keyframes twinkle { 0%,100%{transform:scale(.65) rotate(0deg);opacity:.85} 50%{transform:scale(1) rotate(45deg);opacity:1} }
 
   /* Composer */
   footer { border-top:1px solid var(--border); background:var(--panel); flex:0 0 auto; }
@@ -218,7 +226,7 @@ export const chatPage = `<!doctype html>
       artTitle=$('artTitle'), artTabs=$('artTabs'), artBody=$('artBody'),
       artToggle=$('artToggle'), artCount=$('artCount');
 
-  var sessionId = null, pending = [], artifacts = [], active = 0;
+  var sessionId = null, pending = [], artifacts = [], active = 0, thinkTimer = null;
 
   apikey.value = localStorage.getItem('apikey') || '';
   apikey.addEventListener('change', function () { localStorage.setItem('apikey', apikey.value); });
@@ -366,6 +374,31 @@ export const chatPage = `<!doctype html>
     if (tools && tools.length) { var d=document.createElement('div'); d.className='tools'; d.textContent='🔧 used: '+tools.join(', '); bubble.appendChild(d); }
   }
 
+  // ---------- thinking indicator ----------
+  var LOGO_SVG_THINK =
+    '<svg viewBox="0 0 40 40" aria-hidden="true">'
+    + '<defs><linearGradient id="tg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient></defs>'
+    + '<rect x="2" y="2" width="36" height="36" rx="10" fill="url(#tg)"/>'
+    + '<path class="spark" d="M20 11L22.26 17.74L29 20L22.26 22.26L20 29L17.74 22.26L11 20L17.74 17.74Z" fill="#fff"/>'
+    + '<circle cx="29.5" cy="10.5" r="1.7" fill="#fff"/></svg>';
+  var THINKING = ['Thinking', 'Gathering context', 'Reasoning it through', 'Drafting a response', 'Polishing the details'];
+  function stopThinking(){ if (thinkTimer){ clearInterval(thinkTimer); thinkTimer=null; } }
+  function showThinking(bubble){
+    stopThinking();
+    bubble.innerHTML =
+      '<div class="thinking"><span class="think-logo">' + LOGO_SVG_THINK + '</span>'
+      + '<span class="think-text">' + THINKING[0] + '</span>'
+      + '<span class="dots"><i>.</i><i>.</i><i>.</i></span></div>';
+    var txt = bubble.querySelector('.think-text');
+    var i = 0;
+    thinkTimer = setInterval(function(){
+      if (!txt.isConnected){ stopThinking(); return; }
+      i = (i + 1) % THINKING.length;
+      txt.style.opacity = '0';
+      setTimeout(function(){ txt.textContent = THINKING[i]; txt.style.opacity = '1'; }, 220);
+    }, 2000);
+  }
+
   // ---------- sessions ----------
   function loadSessions(){
     fetch('sessions',{headers:headers()}).then(function(r){return r.json();}).then(function(j){ renderConvs(j.sessions||[]); }).catch(function(){});
@@ -440,7 +473,7 @@ export const chatPage = `<!doctype html>
     var blankEl=chat.querySelector('.blank'); if(blankEl) blankEl.remove();
     userTurn({ text:text, images:atts.filter(function(p){return p.preview;}).map(function(p){return p.preview;}), files:atts.filter(function(p){return !p.preview;}).map(function(p){return p.name;}) });
     input.value=''; input.style.height='auto'; pending=[]; renderPending(); sendBtn.disabled=true;
-    var rb=assistantTurn(); rb.innerHTML='<span class="typing"><span></span><span></span><span></span></span>';
+    var rb=assistantTurn(); showThinking(rb);
 
     var payload={ message:text };
     if (sessionId) payload.sessionId=sessionId;
@@ -457,7 +490,7 @@ export const chatPage = `<!doctype html>
         loadSessions();
       })
       .catch(function(err){ rb.innerHTML='<span class="err">Network error: '+esc(err.message)+'</span>'; })
-      .finally(function(){ sendBtn.disabled=false; input.focus(); scrollChat(); });
+      .finally(function(){ stopThinking(); sendBtn.disabled=false; input.focus(); scrollChat(); });
   }
 
   // ---------- mobile ----------
