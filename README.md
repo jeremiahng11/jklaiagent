@@ -11,7 +11,7 @@ The agent never holds your Anthropic credentials. It just makes standard Anthrop
 ## Features
 
 - **3-pane chat app** — open the app's URL in a browser for a full client: a **history sidebar** (switch / rename / delete conversations), the chat, and an **artifact preview pane**.
-- **Artifact preview** — code the AI produces appears on the right with copy + download; HTML/SVG can be rendered live in a sandboxed frame; referenced images preview inline.
+- **Artifact preview** — code the AI produces appears on the right with copy + download; HTML/SVG can be rendered live in a sandboxed frame; referenced images preview inline. Toggle the pane any time with the **⧉ Preview** button in the header (it shows how many artifacts the open chat has), so you can reopen it after closing without losing anything.
 - **Persistent conversations** — every chat is saved to disk and reloads after restarts/redeploys (mount a volume at `DATA_DIR`). Pick up any past conversation, with its images and context intact.
 - **Image + file uploads** — drag & drop, paste, or 📎 to send images (Claude vision), PDFs (document blocks), and text files (inlined).
 - **HTTP/webhook API** — `POST /chat` to drive it from any app, not just the browser.
@@ -129,7 +129,7 @@ Keep the agent and Meridian as **separate services** so you can restart/update e
 
 - Conversations are persisted as JSON files under `DATA_DIR` (one file per conversation, loaded into memory at boot). Great for a single-instance personal agent on a Pi. For multi-instance or high volume, swap `src/store.ts` for a SQLite/Postgres-backed implementation — the rest of the app only depends on its exported functions.
 - Stored history includes uploaded image bytes (base64), so reopening an old chat restores its image context. Watch `DATA_DIR` disk usage if you upload many large images.
-- The `fetch_url` tool fetches arbitrary public URLs. If you expose the agent to untrusted callers, consider allow-listing hosts to avoid SSRF against your internal network.
+- The `fetch_url` tool fetches public URLs only — it resolves each target (and every redirect hop) and refuses loopback, link-local, RFC1918, CGNAT, and cloud-metadata (`169.254.169.254`) addresses, so it can't be turned against Meridian or the rest of your internal network. If you need it to reach a specific internal host, add an explicit allow-list in `src/tools/fetchUrl.ts`.
 - The artifact pane renders HTML/SVG in a `sandbox="allow-scripts"` iframe. Only run artifacts you trust.
 
 ## License

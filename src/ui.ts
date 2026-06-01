@@ -33,6 +33,8 @@ export const chatPage = `<!doctype html>
   header .spacer { flex:1; }
   .iconbtn { border:1px solid var(--border); background:var(--panel2); color:var(--text); border-radius:10px; padding:7px 11px; font:inherit; font-size:13px; cursor:pointer; }
   .iconbtn:hover { background:#232836; }
+  .iconbtn.on { background:var(--accent2); color:#fff; border-color:transparent; }
+  .iconbtn .badge { display:inline-block; min-width:16px; padding:0 4px; margin-left:4px; border-radius:8px; background:rgba(255,255,255,.18); font-size:11px; line-height:16px; text-align:center; }
   .ghost { border:none; background:transparent; color:var(--muted); cursor:pointer; font-size:18px; padding:4px 8px; border-radius:8px; }
   .ghost:hover { background:#232836; color:var(--text); }
 
@@ -141,6 +143,7 @@ export const chatPage = `<!doctype html>
   <div class="logo">jk</div>
   <div><h1>jklaiagent</h1><div class="status" id="status">connecting…</div></div>
   <span class="spacer"></span>
+  <button class="iconbtn" id="artToggle" title="Show/hide preview panel" style="display:none">⧉ Preview<span class="badge" id="artCount">0</span></button>
   <button class="iconbtn" id="settingsBtn">⚙</button>
 </header>
 
@@ -201,7 +204,8 @@ export const chatPage = `<!doctype html>
   var chat=$('chat'), input=$('input'), sendBtn=$('send'), fileInput=$('file'), pendingEl=$('pending'),
       inputrow=$('inputrow'), statusEl=$('status'), apikey=$('apikey'), settings=$('settings'),
       convsEl=$('convs'), sidebar=$('sidebar'), backdrop=$('backdrop'), panel=$('artifact'),
-      artTitle=$('artTitle'), artTabs=$('artTabs'), artBody=$('artBody');
+      artTitle=$('artTitle'), artTabs=$('artTabs'), artBody=$('artBody'),
+      artToggle=$('artToggle'), artCount=$('artCount');
 
   var sessionId = null, pending = [], artifacts = [], active = 0;
 
@@ -251,8 +255,17 @@ export const chatPage = `<!doctype html>
     if (artifacts.length && open) panel.classList.add('open');
     renderArtifacts();
   }
+  // Header toggle: visible only when the current conversation has artifacts,
+  // highlighted while the panel is open. This is what lets you re-open the
+  // preview after closing it to revisit code/files from any chat.
+  function updateArtToggle() {
+    var n = artifacts.length;
+    artToggle.style.display = n ? '' : 'none';
+    artCount.textContent = String(n);
+    artToggle.classList.toggle('on', panel.classList.contains('open'));
+  }
   function renderArtifacts() {
-    if (!artifacts.length) { panel.classList.remove('open'); artBody.innerHTML=''; artTabs.innerHTML=''; artTitle.textContent='Preview'; return; }
+    if (!artifacts.length) { panel.classList.remove('open'); artBody.innerHTML=''; artTabs.innerHTML=''; artTitle.textContent='Preview'; updateArtToggle(); return; }
     if (active >= artifacts.length) active = artifacts.length - 1;
     artTabs.innerHTML='';
     if (artifacts.length > 1) artifacts.forEach(function(a,i){
@@ -269,8 +282,10 @@ export const chatPage = `<!doctype html>
     if (a.kind==='image') { var im=document.createElement('img'); im.className='art-img'; im.src=a.url; artBody.appendChild(im); }
     else if (a.previewing && renderable) { var f=document.createElement('iframe'); f.className='art-frame'; f.setAttribute('sandbox','allow-scripts'); f.srcdoc=a.code; artBody.appendChild(f); }
     else { var pre=document.createElement('pre'); var c=document.createElement('code'); c.textContent=a.code; pre.appendChild(c); artBody.appendChild(pre); }
+    updateArtToggle();
   }
-  $('artClose').onclick = function(){ panel.classList.remove('open'); };
+  artToggle.onclick = function(){ if(!artifacts.length) return; panel.classList.toggle('open'); updateArtToggle(); };
+  $('artClose').onclick = function(){ panel.classList.remove('open'); updateArtToggle(); };
   $('artPreview').onclick = function(){ var a=artifacts[active]; if(a){ a.previewing=!a.previewing; renderArtifacts(); } };
   $('artCopy').onclick = function(){ var a=artifacts[active]; if(a&&navigator.clipboard) navigator.clipboard.writeText(a.code); };
   $('artDownload').onclick = function(){ var a=artifacts[active]; if(!a) return; var ext=EXT[a.lang]||'txt'; var blob=new Blob([a.code],{type:'text/plain'}); var url=URL.createObjectURL(blob); var el=document.createElement('a'); el.href=url; el.download='artifact.'+ext; el.click(); setTimeout(function(){URL.revokeObjectURL(url);},1000); };
@@ -400,6 +415,14 @@ export const chatPage = `<!doctype html>
   function closeMobile(){ sidebar.classList.remove('open'); backdrop.classList.remove('show'); }
   $('hamburger').onclick=function(){ var o=sidebar.classList.toggle('open'); backdrop.classList.toggle('show',o); };
   backdrop.onclick=closeMobile;
+
+  // Esc backs out of whatever overlay is open: settings → preview panel → mobile sidebar.
+  document.addEventListener('keydown',function(e){
+    if (e.key!=='Escape') return;
+    if (settings.classList.contains('open')) { settings.classList.remove('open'); }
+    else if (panel.classList.contains('open')) { panel.classList.remove('open'); updateArtToggle(); }
+    else if (sidebar.classList.contains('open')) { closeMobile(); }
+  });
 
   // ---------- init ----------
   fetch('health',{headers:headers()}).then(function(r){return r.json();})
