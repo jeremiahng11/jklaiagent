@@ -74,7 +74,10 @@ export const chatPage = `<!doctype html>
   .turn.user { flex-direction:row-reverse; }
   .avatar { flex:0 0 30px; width:30px; height:30px; border-radius:8px; display:grid; place-items:center; font-size:13px; font-weight:700; }
   .user .avatar { background:var(--accent2); color:#fff; }
-  .assistant .avatar { background:#2a2f3d; color:#cbd2e0; }
+  .assistant .avatar { background:transparent; color:#cbd2e0; }
+  .assistant .avatar svg { width:100%; height:100%; display:block; }
+  .assistant .avatar.working { animation:breathe 1.8s ease-in-out infinite; filter:drop-shadow(0 0 5px rgba(99,102,241,.55)); }
+  .assistant .avatar.working .spark { transform-box:fill-box; transform-origin:center; animation:twinkle 1.6s ease-in-out infinite; }
   .bubble { padding:12px 16px; border-radius:var(--radius); max-width:78%; }
   .user .bubble { background:var(--accent2); color:#fff; border-bottom-right-radius:4px; }
   .assistant .bubble { background:var(--panel); border:1px solid var(--border); border-bottom-left-radius:4px; }
@@ -88,11 +91,8 @@ export const chatPage = `<!doctype html>
   .att-chip { display:inline-flex; align-items:center; gap:6px; background:rgba(0,0,0,.25); border:1px solid var(--border); border-radius:8px; padding:6px 10px; font-size:13px; }
   .tools { font-size:12px; color:var(--muted); margin-top:6px; }
   .err { color:var(--err); font-size:13px; }
-  /* Thinking indicator: animated JKL logo + cycling status text */
-  .thinking { display:flex; align-items:center; gap:10px; color:var(--muted); font-size:14px; }
-  .think-logo { width:24px; height:24px; flex:0 0 auto; animation:breathe 1.8s ease-in-out infinite; filter:drop-shadow(0 0 5px rgba(99,102,241,.55)); }
-  .think-logo svg { width:100%; height:100%; display:block; }
-  .think-logo .spark { transform-box:fill-box; transform-origin:center; animation:twinkle 1.6s ease-in-out infinite; }
+  /* Thinking indicator: cycling status text (the avatar logo animates) */
+  .thinking { display:flex; align-items:center; gap:4px; color:var(--muted); font-size:14px; }
   .think-text { font-weight:500; transition:opacity .25s; }
   .dots i { font-style:normal; opacity:.2; animation:blink 1.2s infinite both; }
   .dots i:nth-child(2){animation-delay:.2s} .dots i:nth-child(3){animation-delay:.4s}
@@ -157,6 +157,7 @@ export const chatPage = `<!doctype html>
 </style>
 </head>
 <body>
+<svg width="0" height="0" aria-hidden="true" style="position:absolute"><defs><linearGradient id="jklGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient></defs></svg>
 <header>
   <button class="ghost hamburger" id="hamburger" title="Conversations">☰</button>
   <div class="logo"><svg viewBox="0 0 40 40" width="30" height="30" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient></defs><rect x="2" y="2" width="36" height="36" rx="10" fill="url(#lg)"/><path d="M20 11L22.26 17.74L29 20L22.26 22.26L20 29L17.74 22.26L11 20L17.74 17.74Z" fill="#fff"/><circle cx="29.5" cy="10.5" r="1.7" fill="#fff"/></svg></div>
@@ -219,6 +220,13 @@ export const chatPage = `<!doctype html>
   var IMAGE_RE = /^image\\//;
   var EXT = { javascript:'js', js:'js', typescript:'ts', ts:'ts', tsx:'tsx', jsx:'jsx', python:'py', py:'py', bash:'sh', sh:'sh', shell:'sh', html:'html', xml:'xml', svg:'svg', css:'css', json:'json', yaml:'yaml', yml:'yml', sql:'sql', go:'go', rust:'rs', rs:'rs', java:'java', c:'c', cpp:'cpp', md:'md', markdown:'md' };
   var $ = function (id) { return document.getElementById(id); };
+
+  // The JKL mark, reused for the assistant avatar (animated while thinking).
+  var LOGO_MARK =
+    '<svg viewBox="0 0 40 40" aria-hidden="true">'
+    + '<rect x="2" y="2" width="36" height="36" rx="10" fill="url(#jklGrad)"/>'
+    + '<path class="spark" d="M20 11L22.26 17.74L29 20L22.26 22.26L20 29L17.74 22.26L11 20L17.74 17.74Z" fill="#fff"/>'
+    + '<circle cx="29.5" cy="10.5" r="1.7" fill="#fff"/></svg>';
 
   var chat=$('chat'), input=$('input'), sendBtn=$('send'), fileInput=$('file'), pendingEl=$('pending'),
       inputrow=$('inputrow'), statusEl=$('status'), apikey=$('apikey'), settings=$('settings'),
@@ -364,7 +372,7 @@ export const chatPage = `<!doctype html>
   }
   function assistantTurn(){
     var t=document.createElement('div'); t.className='turn assistant';
-    var a=document.createElement('div'); a.className='avatar'; a.textContent='AI';
+    var a=document.createElement('div'); a.className='avatar'; a.innerHTML=LOGO_MARK;
     var b=document.createElement('div'); b.className='bubble';
     t.appendChild(a); t.appendChild(b); chat.appendChild(t); scrollChat();
     return b;
@@ -374,20 +382,19 @@ export const chatPage = `<!doctype html>
     if (tools && tools.length) { var d=document.createElement('div'); d.className='tools'; d.textContent='🔧 used: '+tools.join(', '); bubble.appendChild(d); }
   }
 
-  // ---------- thinking indicator ----------
-  var LOGO_SVG_THINK =
-    '<svg viewBox="0 0 40 40" aria-hidden="true">'
-    + '<defs><linearGradient id="tg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient></defs>'
-    + '<rect x="2" y="2" width="36" height="36" rx="10" fill="url(#tg)"/>'
-    + '<path class="spark" d="M20 11L22.26 17.74L29 20L22.26 22.26L20 29L17.74 22.26L11 20L17.74 17.74Z" fill="#fff"/>'
-    + '<circle cx="29.5" cy="10.5" r="1.7" fill="#fff"/></svg>';
+  // ---------- thinking indicator (animates the assistant avatar logo) ----------
   var THINKING = ['Thinking', 'Gathering context', 'Reasoning it through', 'Drafting a response', 'Polishing the details'];
-  function stopThinking(){ if (thinkTimer){ clearInterval(thinkTimer); thinkTimer=null; } }
+  function stopThinking(){
+    if (thinkTimer){ clearInterval(thinkTimer); thinkTimer=null; }
+    var marks = chat.querySelectorAll('.avatar.working');
+    for (var k=0; k<marks.length; k++) marks[k].classList.remove('working');
+  }
   function showThinking(bubble){
     stopThinking();
+    var avatar = bubble.parentNode && bubble.parentNode.querySelector('.avatar');
+    if (avatar) avatar.classList.add('working');
     bubble.innerHTML =
-      '<div class="thinking"><span class="think-logo">' + LOGO_SVG_THINK + '</span>'
-      + '<span class="think-text">' + THINKING[0] + '</span>'
+      '<div class="thinking"><span class="think-text">' + THINKING[0] + '</span>'
       + '<span class="dots"><i>.</i><i>.</i><i>.</i></span></div>';
     var txt = bubble.querySelector('.think-text');
     var i = 0;
