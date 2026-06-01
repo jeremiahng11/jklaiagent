@@ -76,8 +76,12 @@ export const chatPage = `<!doctype html>
   .user .avatar { background:var(--accent2); color:#fff; }
   .assistant .avatar { background:transparent; color:#cbd2e0; }
   .assistant .avatar svg { width:100%; height:100%; display:block; }
-  .assistant .avatar.working { animation:breathe 1.8s ease-in-out infinite; filter:drop-shadow(0 0 5px rgba(99,102,241,.55)); }
+  .assistant .avatar.working { position:relative; animation:breathe 1.8s ease-in-out infinite; }
+  .assistant .avatar.working svg { position:relative; z-index:1; animation:glow 1.8s ease-in-out infinite; }
   .assistant .avatar.working .spark { transform-box:fill-box; transform-origin:center; animation:twinkle 1.6s ease-in-out infinite; }
+  .assistant .avatar.working::after { content:''; position:absolute; inset:-7px; border-radius:14px; z-index:0; pointer-events:none; background:radial-gradient(circle, rgba(139,92,246,.6), rgba(59,130,246,.22) 55%, transparent 72%); animation:halo 1.8s ease-in-out infinite; }
+  @keyframes glow { 0%,100%{filter:drop-shadow(0 0 2px rgba(59,130,246,.5));} 50%{filter:drop-shadow(0 0 8px rgba(139,92,246,.95)) drop-shadow(0 0 15px rgba(59,130,246,.55));} }
+  @keyframes halo { 0%,100%{opacity:.3; transform:scale(.8);} 50%{opacity:.8; transform:scale(1.2);} }
   .bubble { padding:12px 16px; border-radius:var(--radius); max-width:78%; }
   .user .bubble { background:var(--accent2); color:#fff; border-bottom-right-radius:4px; }
   .assistant .bubble { background:var(--panel); border:1px solid var(--border); border-bottom-left-radius:4px; }
