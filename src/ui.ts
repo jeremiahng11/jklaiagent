@@ -15,7 +15,9 @@ export const chatPage = `<!doctype html>
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>jklaiagent</title>
+<meta name="theme-color" content="#3b82f6" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='%233b82f6'/><stop offset='1' stop-color='%238b5cf6'/></linearGradient></defs><rect x='2' y='2' width='36' height='36' rx='10' fill='url(%23g)'/><path d='M20 11L22.26 17.74L29 20L22.26 22.26L20 29L17.74 22.26L11 20L17.74 17.74Z' fill='white'/><circle cx='29.5' cy='10.5' r='1.7' fill='white'/></svg>" />
+<title>JKL aiAgent</title>
 <style>
   :root {
     --bg:#0e1014; --panel:#161922; --panel2:#1d212c; --border:#262b38;
@@ -27,8 +29,10 @@ export const chatPage = `<!doctype html>
   body { font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif; background:var(--bg); color:var(--text); display:flex; flex-direction:column; overflow:hidden; }
 
   header { display:flex; align-items:center; gap:12px; padding:10px 14px; background:var(--panel); border-bottom:1px solid var(--border); flex:0 0 auto; }
-  header .logo { width:28px; height:28px; border-radius:8px; background:linear-gradient(135deg,var(--accent),#8b5cf6); display:grid; place-items:center; font-weight:700; font-size:14px; color:#fff; }
-  header h1 { font-size:15px; margin:0; font-weight:600; }
+  header .logo { width:30px; height:30px; display:grid; place-items:center; flex:0 0 auto; }
+  header .logo svg { width:100%; height:100%; display:block; }
+  header h1 { font-size:15px; margin:0; font-weight:600; letter-spacing:.2px; }
+  header h1 .ai { color:#a78bfa; background:linear-gradient(135deg,var(--accent),#a78bfa); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
   header .status { color:var(--muted); font-size:12px; }
   header .spacer { flex:1; }
   .iconbtn { border:1px solid var(--border); background:var(--panel2); color:var(--text); border-radius:10px; padding:7px 11px; font:inherit; font-size:13px; cursor:pointer; }
@@ -147,8 +151,8 @@ export const chatPage = `<!doctype html>
 <body>
 <header>
   <button class="ghost hamburger" id="hamburger" title="Conversations">☰</button>
-  <div class="logo">jk</div>
-  <div><h1>jklaiagent</h1><div class="status" id="status">connecting…</div></div>
+  <div class="logo"><svg viewBox="0 0 40 40" width="30" height="30" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient></defs><rect x="2" y="2" width="36" height="36" rx="10" fill="url(#lg)"/><path d="M20 11L22.26 17.74L29 20L22.26 22.26L20 29L17.74 22.26L11 20L17.74 17.74Z" fill="#fff"/><circle cx="29.5" cy="10.5" r="1.7" fill="#fff"/></svg></div>
+  <div><h1>JKL <span class="ai">ai</span>Agent</h1><div class="status" id="status">connecting…</div></div>
   <span class="spacer"></span>
   <button class="iconbtn" id="artToggle" title="Show/hide preview panel" style="display:none">⧉ Preview<span class="badge" id="artCount">0</span></button>
   <button class="iconbtn" id="settingsBtn">⚙</button>
@@ -168,7 +172,7 @@ export const chatPage = `<!doctype html>
         <div class="inputrow" id="inputrow">
           <button class="attach" id="attachBtn" title="Attach files">📎</button>
           <input type="file" id="file" multiple accept="image/*,application/pdf,.txt,.md,.csv,.json,.log,.ts,.js,.py,text/*" hidden />
-          <textarea id="input" rows="1" placeholder="Message jklaiagent…  (Enter to send, Shift+Enter for newline)"></textarea>
+          <textarea id="input" rows="1" placeholder="Message JKL aiAgent…  (Enter to send, Shift+Enter for newline)"></textarea>
           <button class="send" id="send" title="Send">↑</button>
         </div>
         <div class="hint">Images (vision) · PDFs · text files — drag, paste, or 📎 · up to 10 MB each</div>
@@ -308,12 +312,12 @@ export const chatPage = `<!doctype html>
       prompt:'Write a polished one-page document as a single self-contained HTML page with clean typography and inline CSS, ready to print or export to PDF. The document is a: ' },
     { icon:'🎨', title:'Logo', desc:'Clean vector SVG',
       prompt:'Design a minimal, modern logo as a single self-contained SVG with a matching color palette, output as an SVG code block so I can preview and download it. The brand is: ' },
-    { icon:'🖥️', title:'Web UI', desc:'Responsive landing page',
-      prompt:'Build a responsive landing page as one self-contained HTML file (inline CSS, no external dependencies) with a hero, features section and call-to-action. Modern, polished design. The product is: ' },
-    { icon:'📱', title:'Mobile UI', desc:'App screen mockup',
-      prompt:'Design a mobile app screen as a self-contained HTML mockup sized for a phone (390x844), with a top bar, content area and bottom navigation, using inline CSS and a modern design system. The app screen is: ' },
-    { icon:'🚀', title:'App', desc:'Scaffold & build',
-      prompt:'Help me build an app. Propose a sensible stack, then scaffold the key files with complete, runnable code (one file per code block, filename above each). The app should: ' },
+    { icon:'🌐', title:'Web App', desc:'Django / Node, full-stack',
+      prompt:'Help me build a full-stack web project with both frontend and backend covered. Use Django or Node.js (ask me which if unspecified), scaffold the key files with complete, runnable code (one file per code block, filename above each), and include a multi-stage Dockerfile plus deploy config for Coolify or Render.com. The project is: ' },
+    { icon:'📱', title:'Mobile UI', desc:'iOS + Android, PWA',
+      prompt:'Design a mobile app screen as a self-contained HTML mockup, shown side by side at the latest iPhone and Android phone sizes (e.g. iPhone 16 Pro ~393x852 and Pixel 9 ~412x915 CSS px), with a top bar, content area and bottom navigation. Make the markup PWA-ready (responsive viewport, theme-color meta, web app manifest, touch-friendly), using inline CSS and a modern design system. The screen is: ' },
+    { icon:'📲', title:'Mobile App', desc:'Flutter / React Native',
+      prompt:'Help me build a cross-platform mobile app for Android and iOS, targeting the latest phone sizes. Use Flutter (Material 3) or React Native (ask me which if unspecified), and scaffold the project structure and key files with complete, runnable code (one file per code block with the filename above it), ready for Android Studio / standard tooling. The app should: ' },
   ];
   function useStarter(text){
     input.value=text;

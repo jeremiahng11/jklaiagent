@@ -1,6 +1,8 @@
-# jklaiagent
+<img src="assets/logo.svg" alt="JKL aiAgent" width="56" align="left" />
 
-An HTTP AI agent that talks to **Claude** through the [Meridian](https://github.com/rynfar/meridian) proxy, with a small **pluggable tool framework** and per-session conversation memory.
+# JKL aiAgent
+
+An HTTP AI agent that talks to **Claude** through the [Meridian](https://github.com/rynfar/meridian) proxy, with a small **pluggable tool framework** and per-session conversation memory. (Package / repo name: `jklaiagent`.)
 
 ```
 HTTP client ──POST /chat──▶ jklaiagent ──Anthropic API──▶ Meridian ──▶ Claude Code (your Claude Max/Pro)
