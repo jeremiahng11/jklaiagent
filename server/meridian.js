@@ -6,6 +6,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { MERIDIAN_BASE_URL, MERIDIAN_API_KEY, HEAVY_MODEL, LIGHT_MODEL, SIMULATE } from "./config.js";
+import { embedText } from "./embeddings.js";
 import { executeTool } from "./tools.js";
 import { addEvent, recordUsage, setAgent, getAgent, bus } from "./store.js";
 import { AGENT_DEFS } from "./agents.js";
@@ -245,10 +246,11 @@ export async function consultAgent(department, question, model = null) {
   }
 }
 
-// Semantic memory (RAG) needs an embeddings endpoint, which Meridian/Claude does
-// not expose. Return null so callers transparently fall back to keyword recall.
-export async function embed() {
-  return null;
+// Semantic memory (RAG): embed text with a local model (Transformers.js) — no
+// API/network needed. Returns a 384-dim vector, or null on failure (callers then
+// fall back to keyword recall). This is what powers cross-task learning.
+export async function embed(text) {
+  return embedText(text);
 }
 
 // A guaranteed-correct screen-transition + animation foundation. Agents kept

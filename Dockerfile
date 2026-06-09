@@ -7,6 +7,9 @@ COPY package.json package-lock.json* ./
 RUN npm ci
 COPY . .
 RUN npm run build
+# Pre-download the local embeddings model into ./.models so the runtime image
+# needs no network for semantic memory (RAG).
+RUN node -e "import('./server/embeddings.js').then(m=>m.warmEmbeddings()).then(n=>console.log('[build] embeddings model cached, dim',n)).catch(e=>{console.error(e);process.exit(1)})"
 
 # --- Stage 2: production-only deps ---
 FROM node:22-bookworm-slim AS deps
@@ -21,6 +24,7 @@ WORKDIR /app
 
 COPY --chown=node:node --from=deps /app/node_modules ./node_modules
 COPY --chown=node:node --from=build /app/dist ./dist
+COPY --chown=node:node --from=build /app/.models ./.models
 COPY --chown=node:node server ./server
 COPY --chown=node:node package.json ./
 

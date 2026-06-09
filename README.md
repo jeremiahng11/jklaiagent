@@ -79,7 +79,7 @@ docker compose up --build    # app on :3000 + a Postgres with a persistent volum
 
 ## Notes
 
-- Semantic memory uses **keyword recall** — Meridian/Claude has no embeddings endpoint, so the RAG layer degrades gracefully (no quality loss for most tasks).
+- **Semantic memory (RAG)** runs **locally** via Transformers.js (`all-MiniLM-L6-v2`, 384-dim) — no API key and no network at runtime (the model is cached into the image at build time). Each completed task's learnings are embedded and stored in Postgres (`mem_notes`); future related tasks recall the most relevant ones by meaning, so the agents improve over time. If the model can't load it falls back to keyword recall. Override with `EMBED_MODEL`.
 - The `http_request` tool blocks private/loopback hosts (SSRF guard); set `TOOLS_ALLOW_HOSTS` to allow-list specific public hosts.
 - Web-build previews render in a `sandbox="allow-scripts"` iframe — only preview output you trust.
 
