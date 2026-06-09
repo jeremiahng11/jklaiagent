@@ -376,8 +376,8 @@ export async function runWork(agent, task, memoryText = "", model = null, priorW
   if (!ai || !model) {
     await wait(1200 + Math.random() * 1800);
     return !model
-      ? `Demo task — ${task.title}.\n\n(Visual demo only; no Gemini call was made.)`
-      : `Done: ${task.title}.\n\n(Simulated — set GEMINI_API_KEY for real work.)`;
+      ? `Demo task — ${task.title}.\n\n(Visual demo only; no model call was made.)`
+      : `Done: ${task.title}.\n\n(Simulated — connect Meridian and unset SIMULATE for real work.)`;
   }
   // Throws on API error — the orchestrator turns that into a blocked task +
   // an Issue (it must NOT become a "done" deliverable).

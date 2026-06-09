@@ -1,4 +1,4 @@
-// Agent tools (Gemini function-calling). Granted least-privilege per department.
+// Agent tools (Anthropic tool-use via Meridian). Granted least-privilege per department.
 // Development gets http_request (to test APIs) + request_credentials (to ask the
 // human for sandbox keys). Network access is SSRF-guarded and secrets are
 // substituted server-side via {{NAME}} placeholders and redacted from results.

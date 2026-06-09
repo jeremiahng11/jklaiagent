@@ -1,6 +1,6 @@
 // The CTO loop. Jay Jay ticks on an interval: for each idle worker he finds
 // the next task (assigned to it -> its department -> general pool), runs it on
-// Gemini, reviews the result, marks it done (or re-queues), then moves on.
+// Claude (via Meridian), reviews the result, marks it done (or re-queues), then moves on.
 // When the queue is empty and autonomous mode is on, he generates fresh work.
 
 import {
@@ -92,7 +92,7 @@ async function runTask(agent, task) {
     // Any output from a prior attempt becomes context so the agent CONTINUES
     // the work instead of starting cold (re-queues and manual "Continue").
     const priorWork = isUser ? (task.result || task.priorWork || null) : null;
-    // Attached files the agent can read (images / PDF / text). Gemini-supported types only.
+    // Attached files the agent can read (images / PDF / text). Model-supported types only.
     const atts = isUser ? getAttachments(task.id) : [];
     const media = atts
       .filter((a) => /^image\//.test(a.mime) || a.mime === "application/pdf" || /^text\//.test(a.mime))
