@@ -47,7 +47,9 @@ const isTransient = (msg) => /\b5(00|02|03|29)\b|overloaded|UNAVAILABLE|high dem
 
 // Generous so big builds / follow-ups don't time out; still bounded so a hung
 // call can't freeze an agent forever. Override with LLM_TIMEOUT_MS.
-const TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS || process.env.GEMINI_TIMEOUT_MS || 150000);
+// Generous: streamed builds (big max_tokens) can run for minutes. Bounded so a
+// hung call can't pin an agent forever. Override with LLM_TIMEOUT_MS.
+const TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS || process.env.GEMINI_TIMEOUT_MS || 600000);
 const withTimeout = (p, ms = TIMEOUT_MS) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("Meridian request timed out")), ms))]);
 
 // Cap output tokens per tier so a request can't exceed the model's limit.
@@ -132,8 +134,10 @@ async function callModel(system, prompt, { json = false, temperature = 0.7, mode
   const MAX_TRIES = 4;
   for (let attempt = 0; attempt < MAX_TRIES; attempt++) {
     try {
+      // Stream + collect the final message. Streaming lifts the SDK's 10-minute
+      // non-streaming cap, so large builds (high max_tokens) don't get rejected.
       const res = await withTimeout(
-        ai.messages.create({ model: mdl, max_tokens: clampTokens(maxOutputTokens, mdl), system, temperature, messages }),
+        ai.messages.stream({ model: mdl, max_tokens: clampTokens(maxOutputTokens, mdl), system, temperature, messages }).finalMessage(),
         TIMEOUT_MS,
       );
       try { recordUsage(mdl, usageMeta(res)); } catch {}
@@ -187,7 +191,7 @@ async function toolLoop(system, prompt, { model, media, tools, toolCtx, maxOutpu
   const max_tokens = clampTokens(maxOutputTokens, mdl);
   const messages = [{ role: "user", content: userContent(prompt, media) }];
   for (let step = 0; step < 8; step++) {
-    const res = await withTimeout(ai.messages.create({ model: mdl, max_tokens, system, temperature: 0.5, tools, messages }), TIMEOUT_MS);
+    const res = await withTimeout(ai.messages.stream({ model: mdl, max_tokens, system, temperature: 0.5, tools, messages }).finalMessage(), TIMEOUT_MS);
     try { recordUsage(mdl, usageMeta(res)); } catch {}
     const toolUses = (res.content || []).filter((b) => b.type === "tool_use");
     if (!toolUses.length) return textOf(res);
@@ -200,7 +204,7 @@ async function toolLoop(system, prompt, { model, media, tools, toolCtx, maxOutpu
     messages.push({ role: "user", content: results });
   }
   messages.push({ role: "user", content: "Wrap up now and produce the final deliverable from what you gathered." });
-  const final = await withTimeout(ai.messages.create({ model: mdl, max_tokens, system, messages }), TIMEOUT_MS);
+  const final = await withTimeout(ai.messages.stream({ model: mdl, max_tokens, system, messages }).finalMessage(), TIMEOUT_MS);
   try { recordUsage(mdl, usageMeta(final)); } catch {}
   return textOf(final);
 }
