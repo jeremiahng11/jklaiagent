@@ -48,6 +48,9 @@ const PLACEHOLDER = {
 };
 
 const fmtTok = (n) => (n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + "k" : String(n || 0));
+// Show just the model name + version, e.g. "claude-sonnet-4-6" -> "sonnet-4-6",
+// "claude-haiku-4-5-20251001" -> "haiku-4-5".
+const prettyModel = (name) => String(name || "").replace(/^claude-/i, "").replace(/-\d{6,8}$/, "");
 const fmtTime = (ms) => { try { return new Date(ms).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }); } catch { return ""; } };
 const agoFrom = (ms) => { if (!ms) return "—"; const s = Math.floor((Date.now() - ms) / 1000); if (s < 45) return "just now"; const m = Math.floor(s / 60); if (m < 1) return "just now"; if (m < 60) return `${m}m ago`; const h = Math.floor(m / 60); if (h < 24) return `${h}h ago`; return `${Math.floor(h / 24)}d ago`; };
 const EVENT_COLOR = { assign: "#facc15", handoff: "#67e8f9", tool: "#38bdf8", review: "#eab308", done: "#4ade80", redo: "#fb923c", fail: "#fb5570", issue: "#fb5570", system: "#9db0c8" };
@@ -443,7 +446,7 @@ function StatCard({ label, value, sub, color }) {
   );
 }
 
-function StatsView({ stats, tasks, agents, onOpenTask }) {
+function StatsView({ stats, tasks, agents, onOpenTask, models }) {
   const ts = Object.values(tasks);
   const cnt = (pred) => ts.filter(pred).length;
   const done = cnt((t) => t.status === "done");
@@ -469,8 +472,8 @@ function StatsView({ stats, tasks, agents, onOpenTask }) {
 
       <div style={SS.secTitle}>COST TODAY (EST.)</div>
       <div style={SS.statCards}>
-        <StatCard label={`Pro · ${s.pro.calls} calls`} value={`$${s.estCostPro.toFixed(2)}`} sub={`${fmtTok(s.pro.inTok + s.pro.outTok)} tokens`} color="#facc15" />
-        <StatCard label={`Flash · ${s.flash.calls} calls`} value={`$${s.estCostFlash.toFixed(2)}`} sub={`${fmtTok(s.flash.inTok + s.flash.outTok)} tokens`} color="#67e8f9" />
+        <StatCard label={`${prettyModel(models?.pro?.name) || "heavy"} · ${s.pro.calls} calls`} value={`$${s.estCostPro.toFixed(2)}`} sub={`${fmtTok(s.pro.inTok + s.pro.outTok)} tokens`} color="#facc15" />
+        <StatCard label={`${prettyModel(models?.flash?.name) || "light"} · ${s.flash.calls} calls`} value={`$${s.estCostFlash.toFixed(2)}`} sub={`${fmtTok(s.flash.inTok + s.flash.outTok)} tokens`} color="#67e8f9" />
         <StatCard label="Total today" value={`$${s.estCostTotal.toFixed(2)}`} sub={`${fmtTok(totalTok)} tokens`} color="#a855f7" />
       </div>
 
@@ -905,15 +908,14 @@ export default function AgentOffice() {
                       : `${m.name}: OUT OF CREDITS / quota${k === "pro" ? " — running on Flash" : m.sharedKey ? " (same key as Pro — add a free FLASH_API_KEY)" : ""}`
                   }>
                     <span style={{ ...SS.modelDot, background: col, boxShadow: state === "on" ? `0 0 5px ${col}` : "none" }} />
-                    <b style={{ color: col }}>{k.toUpperCase()}</b>
-                    <span style={SS.modelName}>{m.name.replace(/^gemini-/, "").replace(/^2\.5-/, "")}</span>
+                    <b style={{ color: col }}>{prettyModel(m.name)}</b>
                   </span>
                 );
               })}
             </div>
           ) : (
             <div style={SS.modePill} title={gemini ? model : "Simulation"}>
-              {gemini ? <Sparkles size={11} /> : <Bot size={11} />} {gemini ? (model || "CLAUDE") : "SIMULATION"}
+              {gemini ? <Sparkles size={11} /> : <Bot size={11} />} {gemini ? (prettyModel(model) || "MODEL") : "SIMULATION"}
             </div>
           )}
         </div>
@@ -1020,8 +1022,8 @@ export default function AgentOffice() {
                 <span style={SS.statItem}>✓ {stats.tasksDone}</span>
                 <span style={SS.statItem}>✗ {stats.tasksFailed}</span>
                 <span style={SS.statSep}>·</span>
-                <span style={SS.statItem} title="Pro tokens today">PRO {fmtTok(stats.pro.inTok + stats.pro.outTok)} ~${stats.estCostPro.toFixed(2)}</span>
-                <span style={SS.statItem} title="Flash tokens today">FLASH {fmtTok(stats.flash.inTok + stats.flash.outTok)} ~${stats.estCostFlash.toFixed(2)}</span>
+                <span style={SS.statItem} title={`${models?.pro?.name || "heavy"} tokens today`}>{prettyModel(models?.pro?.name) || "heavy"} {fmtTok(stats.pro.inTok + stats.pro.outTok)} ~${stats.estCostPro.toFixed(2)}</span>
+                <span style={SS.statItem} title={`${models?.flash?.name || "light"} tokens today`}>{prettyModel(models?.flash?.name) || "light"} {fmtTok(stats.flash.inTok + stats.flash.outTok)} ~${stats.estCostFlash.toFixed(2)}</span>
                 <span style={SS.statSep}>·</span>
                 <span style={{ ...SS.statItem, color: "#67e8f9", fontWeight: 700 }}>~${stats.estCostTotal.toFixed(2)} today</span>
                 <span style={{ ...SS.statItem, color: "#5e7088" }}>est.</span>
@@ -1149,7 +1151,7 @@ export default function AgentOffice() {
 
         {view === "projects" && <ProjectsView documents={documents} byId={byId} onOpen={openDoc} onDownload={downloadCode} />}
 
-        {view === "stats" && <StatsView stats={stats} tasks={tasks} agents={agents} onOpenTask={setSelected} />}
+        {view === "stats" && <StatsView stats={stats} tasks={tasks} agents={agents} onOpenTask={setSelected} models={models} />}
 
         {view === "issues" && <IssuesView issues={issues} byId={byId} onClearAll={clearIssues} onResolve={resolveIssue} onRetry={(i) => {
           if (!i.taskId) { alert("This issue has no task to retry — dismissing it."); resolveIssue(i.id); return; }
