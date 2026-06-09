@@ -1,138 +1,87 @@
-<img src="assets/logo.svg" alt="JKL aiAgent" width="56" align="left" />
+# JKL aiAgent — Mission Control
 
-# JKL aiAgent
-
-An HTTP AI agent that talks to **Claude** through the [Meridian](https://github.com/rynfar/meridian) proxy, with a small **pluggable tool framework** and per-session conversation memory. (Package / repo name: `jklaiagent`.)
+A live, multi-agent **office dashboard**. **JAY JAY** (the CTO) orchestrates a team
+of specialist agents who plan a goal, split it into department sub-tasks, build the
+deliverables, QA and review them, and synthesize a final result — all visualised in
+real time. The brain is **Claude, reached through the [Meridian](https://github.com/rynfar/meridian) proxy** (Anthropic-compatible), so no model API keys live in the app — Meridian routes through your Claude Code subscription.
 
 ```
-HTTP client ──POST /chat──▶ jklaiagent ──Anthropic API──▶ Meridian ──▶ Claude Code (your Claude Max/Pro)
+Browser ──REST + WebSocket──▶ Mission Control ──Anthropic SDK──▶ Meridian ──▶ Claude
 ```
 
-The agent never holds your Anthropic credentials. It just makes standard Anthropic API calls to Meridian's local endpoint; Meridian routes them through your Claude Code subscription.
+## The team
+
+| Agent | Department | Does |
+|-------|------------|------|
+| **JAY JAY** | Command | CTO orchestrator — routes, plans, reviews, synthesizes |
+| **SCOUT** | Observatory | Research, scanning, monitoring |
+| **SCRIBE** | Research Lab | Writing, analysis, reports |
+| **ORBIT** | Development | Builds apps/sites (Django/Node/Flutter/React/RN or single-file UI) |
+| **WARDEN** | Security | Risk, compliance, vulnerability review |
+| **VAULT** | Admin | Records, organising, structured data |
 
 ## Features
 
-- **3-pane chat app** — open the app's URL in a browser for a full client: a **history sidebar** (switch / rename / delete conversations), the chat, and an **artifact preview pane**.
-- **Artifact preview** — code the AI produces appears on the right with copy + download; HTML/SVG can be rendered live in a sandboxed frame; referenced images preview inline. Toggle the pane any time with the **⧉ Preview** button in the header (it shows how many artifacts the open chat has), so you can reopen it after closing without losing anything.
-- **Persistent conversations** — every chat is saved to disk and reloads after restarts/redeploys (mount a volume at `DATA_DIR`). Pick up any past conversation, with its images and context intact.
-- **Image + file uploads** — drag & drop, paste, or 📎 to send images (Claude vision), PDFs (document blocks), and text files (inlined).
-- **HTTP/webhook API** — `POST /chat` to drive it from any app, not just the browser.
-- **Tool calling** — Claude can invoke registered tools mid-conversation. Ships with `get_current_time` and `fetch_url` as examples; add your own in `src/tools/`.
-- **Optional bearer auth** — protect the endpoints once exposed.
-- **Production-ready container** — multi-stage Dockerfile, non-root user, healthcheck, persistent data volume. Deploys to Coolify as-is.
-
-## Using the chat UI
-
-Open the app's URL (the Coolify domain, or `http://localhost:3000` locally) in a browser. You can:
-
-- Type a message and press **Enter** (Shift+Enter for a newline).
-- **Attach files** with the 📎 button, **drag & drop** onto the input, or **paste** an image from the clipboard.
-- If the server has `AGENT_API_KEY` set, open **⚙ Settings** once and paste the token — it's stored in your browser and sent automatically.
-
-## Tech stack
-
-TypeScript (strict) · Fastify 5 · `@anthropic-ai/sdk` · zod · Node 22
+- **Live visual office** — rooms animate as agents think/work; real-time event ticker over WebSocket.
+- **Orchestration** — assign one task or a whole mission; JAY JAY routes "Any" tasks to the right specialist, decomposes goals into chained sub-tasks, and assembles the final deliverable.
+- **Two model tiers via Meridian** — Sonnet for the heavy work (deliverables, planning, synthesis), Haiku for high-frequency orchestration (routing, review, memory notes, the AUTO demo), with automatic heavy→light fallback and live model-health.
+- **Tools** — cross-department handoffs (`request_help`), SSRF-guarded `http_request` for API testing, and `request_credentials` for sandbox keys.
+- **Deliverables** — Markdown → downloadable **Word (.doc)**; multi-file code projects → **.zip**; live **preview** of web builds in a sandboxed iframe.
+- **Continuous improvement** — Scribe reviews completed work and proposes/auto-applies enhancements; independent QA (Scout tests Orbit's builds, Orbit fixes).
+- **Calendar / routines**, **per-task memory**, **issues**, **daily usage & cost** stats, **auth**, and an installable **PWA**.
+- **Simulation mode** — with `SIMULATE=true` (or Meridian unreachable) the office runs end-to-end with believable placeholder output and zero model calls.
 
 ## Run locally
 
-Requires Node 20+ and a running Meridian instance.
+Requires Node 20+ (22 recommended) and a running Meridian instance.
 
 ```bash
 npm install
-cp .env.example .env        # then edit MERIDIAN_BASE_URL etc.
-npm run dev                 # hot-reloading dev server on :3000
+cp .env.example .env        # set AUTH_*, SESSION_SECRET, MERIDIAN_BASE_URL
+npm run build               # build the React app
+npm start                   # serves app + API + WebSocket + orchestrator on :3000
+# dev: two terminals — `npm run dev` (Vite) and `npm run dev:server`
 ```
 
-Production build:
+Without `DATABASE_URL` the server keeps state in memory (resets on restart). With it, state persists in Postgres.
+
+### Docker (Postgres included)
 
 ```bash
-npm run build
-npm start
+docker compose up --build    # app on :3000 + a Postgres with a persistent volume
 ```
-
-Try it:
-
-```bash
-# First message — omit sessionId to start a new conversation
-curl -s localhost:3000/chat \
-  -H 'content-type: application/json' \
-  -d '{"message":"What time is it in Singapore?"}'
-
-# Continue the conversation by passing back the returned sessionId
-curl -s localhost:3000/chat \
-  -H 'content-type: application/json' \
-  -d '{"message":"And in UTC?","sessionId":"<id-from-previous-response>"}'
-```
-
-## API
-
-| Method & path          | Body / params                          | Description                                  |
-| ---------------------- | -------------------------------------- | -------------------------------------------- |
-| `GET /`                | —                                      | Browser chat app.                            |
-| `GET /health`          | —                                      | Liveness + model/session/tool info.          |
-| `GET /diag`            | —                                      | Tests whether the agent can reach Meridian.  |
-| `POST /chat`           | see below                              | Send a message; returns `{ sessionId, title, reply, toolsUsed }`. |
-| `GET /sessions`        | —                                      | List saved conversations (metadata).         |
-| `GET /sessions/:id`    | —                                      | Get a conversation's display transcript.     |
-| `PATCH /sessions/:id`  | `{ "title": string }`                  | Rename a conversation.                       |
-| `DELETE /sessions/:id` | —                                      | Delete a conversation.                       |
-
-`POST /chat` body — provide a `message`, `attachments`, or both:
-
-```jsonc
-{
-  "message": "What's in this image?",
-  "sessionId": "optional-to-continue-a-conversation",
-  "attachments": [
-    { "name": "photo.png", "mediaType": "image/png", "data": "<base64 bytes, no data: prefix>" }
-  ]
-}
-```
-
-Attachments are routed by `mediaType`: `image/{jpeg,png,gif,webp}` → vision, `application/pdf` → document, anything else → decoded and inlined as text. The JSON body limit is 30 MB (the UI caps each file at 10 MB).
-
-If `AGENT_API_KEY` is set, send `Authorization: Bearer <key>` on every request except `GET /`, `GET /health`, and `GET /diag`.
 
 ## Environment variables
 
-| Variable              | Default                  | Description                                                                 |
-| --------------------- | ------------------------ | --------------------------------------------------------------------------- |
-| `PORT`                | `3000`                   | HTTP port.                                                                  |
-| `HOST`                | `0.0.0.0`                | Bind address.                                                               |
-| `MERIDIAN_BASE_URL`   | `http://localhost:8080`  | Meridian's Anthropic-compatible endpoint. Use the service name across Coolify services (e.g. `http://meridian:8080`). |
-| `MERIDIAN_API_KEY`    | `meridian`               | Placeholder key the SDK requires; Meridian auths via your Claude Code session. |
-| `ANTHROPIC_MODEL`     | `claude-sonnet-4-6`      | Model name passed to Meridian.                                              |
-| `MAX_TOKENS`          | `2048`                   | Max output tokens per response.                                             |
-| `SYSTEM_PROMPT`       | _(see `.env.example`)_   | System prompt defining the agent's behaviour.                              |
-| `MAX_TOOL_ITERATIONS` | `8`                      | Safety cap on tool-call round trips per request.                           |
-| `DATA_DIR`            | `./data` (`/app/data` in Docker) | Where conversations are persisted. Mount a volume here to keep history. |
-| `AGENT_API_KEY`       | _(unset)_                | If set, required as a bearer token. **Set this once exposed.**             |
-| `LOG_LEVEL`           | `info`                   | pino log level.                                                            |
+| Variable | Default | Description |
+| --- | --- | --- |
+| `AUTH_USERNAME` / `AUTH_PASSWORD` | `admin` / `admin` | Login credentials. **Change before exposing.** |
+| `SESSION_SECRET` | dev default | Signs the session cookie — use a long random string. |
+| `MERIDIAN_BASE_URL` | `http://localhost:8080` | Meridian's Anthropic-compatible endpoint. |
+| `MERIDIAN_API_KEY` | `meridian` | Placeholder the SDK needs; Meridian auths via your Claude session. |
+| `ANTHROPIC_MODEL` | `claude-sonnet-4-6` | Heavy tier (deliverables, planning, synthesis). |
+| `ANTHROPIC_FAST_MODEL` | `claude-haiku-4-5-20251001` | Light tier (routing, review, memory, AUTO demo). |
+| `DEMO_MODEL` | = light tier | AUTO demo model; `""` for pure simulation. |
+| `SIMULATE` | `false` | Force the no-LLM simulation. |
+| `DATABASE_URL` | _(unset)_ | Postgres connection string; in-memory if unset. |
+| `TICK_MS` | `1500` | Orchestrator loop interval. |
+| `AUTONOMOUS` | `false` | Start with the self-running AUTO demo on. |
+| `DAILY_BUDGET_USD` | `0` | Optional estimated daily spend ceiling (0 = off). |
+| `PORT` | `3000` | HTTP port. |
 
-## Adding a tool
+## Deploying on Coolify
 
-1. Create `src/tools/myTool.ts` exporting a `Tool` (see `getTime.ts` for the shape).
-2. Add it to the `tools` array in `src/tools/index.ts`.
+1. Create an **Application** from this repo — Coolify builds the Dockerfile.
+2. Add a **Postgres** (Coolify database or managed) and set `DATABASE_URL` to its connection string.
+3. Point `MERIDIAN_BASE_URL` at your Meridian service (e.g. `http://meridian:8080` if it's another service on the same project network).
+4. Set `AUTH_USERNAME`, `AUTH_PASSWORD`, and a strong `SESSION_SECRET`.
+5. Map the container's port 3000 and attach a domain.
 
-That's it — the agent loop and API pick it up automatically.
+## Notes
 
-## Deploying on Coolify (Raspberry Pi)
-
-1. Push this repo to GitHub (done).
-2. In Coolify, create a new **Application** from this Git repo. Coolify detects the Dockerfile and builds it (native arm64 on the Pi — no emulation).
-3. Set environment variables (above). Point `MERIDIAN_BASE_URL` at your Meridian service — if Meridian is another Coolify service on the same project network, use its internal name, e.g. `http://meridian:8080`.
-4. Set `AGENT_API_KEY` to a strong random value before exposing the app publicly.
-5. **Add a persistent volume** mounted at `/app/data` (Coolify → Storage) so conversation history survives redeploys. Without it, history is wiped on every rebuild.
-6. Coolify maps the container's port 3000; attach a domain if you want external access.
-
-Keep the agent and Meridian as **separate services** so you can restart/update each independently.
-
-## Notes & next steps
-
-- Conversations are persisted as JSON files under `DATA_DIR` (one file per conversation, loaded into memory at boot). Great for a single-instance personal agent on a Pi. For multi-instance or high volume, swap `src/store.ts` for a SQLite/Postgres-backed implementation — the rest of the app only depends on its exported functions.
-- Stored history includes uploaded image bytes (base64), so reopening an old chat restores its image context. Watch `DATA_DIR` disk usage if you upload many large images.
-- The `fetch_url` tool fetches public URLs only — it resolves each target (and every redirect hop) and refuses loopback, link-local, RFC1918, CGNAT, and cloud-metadata (`169.254.169.254`) addresses, so it can't be turned against Meridian or the rest of your internal network. If you need it to reach a specific internal host, add an explicit allow-list in `src/tools/fetchUrl.ts`.
-- The artifact pane renders HTML/SVG in a `sandbox="allow-scripts"` iframe. Only run artifacts you trust.
+- Semantic memory uses **keyword recall** — Meridian/Claude has no embeddings endpoint, so the RAG layer degrades gracefully (no quality loss for most tasks).
+- The `http_request` tool blocks private/loopback hosts (SSRF guard); set `TOOLS_ALLOW_HOSTS` to allow-list specific public hosts.
+- Web-build previews render in a `sandbox="allow-scripts"` iframe — only preview output you trust.
 
 ## License
 

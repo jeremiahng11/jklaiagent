@@ -1,23 +1,10 @@
-# Dependencies
-node_modules/
-
-# Build output
-dist/
-
-# Persisted conversations
-data/
-
-# Env / secrets
-.env
-.env.local
-*.local
-
-# Logs
-*.log
-npm-debug.log*
-
-# OS / editor
 .DS_Store
-.idea/
-.vscode/
-*.swp
+node_modules/
+dist/
+*.log
+.env
+.env.*
+!.env.example
+__pycache__/
+*.pyc
+.venv/

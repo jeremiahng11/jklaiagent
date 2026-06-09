@@ -1,0 +1,75 @@
+// Thin REST client. 401 anywhere means the session lapsed -> back to login.
+
+async function req(path, opts = {}) {
+  // Only set the JSON content-type when there's actually a body — otherwise
+  // Fastify rejects the empty body with a 400 "Bad Request" (e.g. retry/suggest).
+  const hasBody = opts.body != null;
+  const r = await fetch(path, {
+    credentials: "same-origin",
+    ...opts,
+    headers: { ...(hasBody ? { "Content-Type": "application/json" } : {}), ...(opts.headers || {}) },
+  });
+  if (r.status === 401) {
+    window.location.href = "/login";
+    throw new Error("unauthorized");
+  }
+  if (!r.ok) {
+    const body = await r.json().catch(() => ({}));
+    throw new Error(body.error || r.statusText);
+  }
+  if (r.status === 204) return null;
+  return r.json();
+}
+
+export const api = {
+  state: () => req("/api/state"),
+  taskEvents: (id) => req(`/api/tasks/${id}/events`),
+  document: (id) => req(`/api/documents/${id}`),
+  deleteDocument: (id) => req(`/api/documents/${id}`, { method: "DELETE" }),
+  deleteMemory: (scope) => req(`/api/memory/${scope}`, { method: "DELETE" }),
+  createTask: (t, files) => {
+    if (files && files.length) {
+      const fd = new FormData();
+      fd.append("title", t.title);
+      if (t.prompt) fd.append("prompt", t.prompt);
+      if (t.department) fd.append("department", t.department);
+      if (t.plan) fd.append("plan", "true");
+      if (t.priority && t.priority !== "normal") fd.append("priority", t.priority);
+      for (const f of files) fd.append("files", f);
+      return fetch("/api/tasks", { method: "POST", credentials: "same-origin", body: fd }).then((r) => {
+        if (r.status === 401) { window.location.href = "/login"; throw new Error("unauthorized"); }
+        if (!r.ok) throw new Error("upload failed");
+        return r.json();
+      });
+    }
+    return req("/api/tasks", { method: "POST", body: JSON.stringify(t) });
+  },
+  deleteTask: (id) => req(`/api/tasks/${id}`, { method: "DELETE" }),
+  retryTask: (id) => req(`/api/tasks/${id}/retry`, { method: "POST" }),
+  followupTask: (id, instruction, files) => {
+    if (files && files.length) {
+      const fd = new FormData();
+      fd.append("instruction", instruction);
+      for (const f of files) fd.append("files", f);
+      return fetch(`/api/tasks/${id}/followup`, { method: "POST", credentials: "same-origin", body: fd }).then((r) => {
+        if (r.status === 401) { window.location.href = "/login"; throw new Error("unauthorized"); }
+        if (!r.ok) throw new Error("follow-up failed");
+        return r.json();
+      });
+    }
+    return req(`/api/tasks/${id}/followup`, { method: "POST", body: JSON.stringify({ instruction }) });
+  },
+  suggestImprovements: (id) => req(`/api/tasks/${id}/suggest`, { method: "POST" }),
+  autoImprove: (id, on) => req(`/api/tasks/${id}/autoimprove`, { method: "POST", body: JSON.stringify({ on }) }),
+  clearTasks: (scope) => req("/api/tasks/clear", { method: "POST", body: JSON.stringify({ scope }) }),
+  createMission: (m) => req("/api/missions", { method: "POST", body: JSON.stringify(m) }),
+  resolveIssue: (id) => req(`/api/issues/${id}/resolve`, { method: "POST" }),
+  clearIssues: () => req("/api/issues/clear", { method: "POST" }),
+  setCredential: (id, name, value) => req(`/api/tasks/${id}/credentials`, { method: "POST", body: JSON.stringify({ name, value }) }),
+  createRoutine: (r) => req("/api/routines", { method: "POST", body: JSON.stringify(r) }),
+  updateRoutine: (id, patch) => req(`/api/routines/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  deleteRoutine: (id) => req(`/api/routines/${id}`, { method: "DELETE" }),
+  control: (action, extra = {}) =>
+    req("/api/control", { method: "POST", body: JSON.stringify({ action, ...extra }) }),
+  logout: () => req("/api/logout", { method: "POST" }),
+};

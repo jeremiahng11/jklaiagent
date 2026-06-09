@@ -1,39 +1,43 @@
-# Local-dev compose. On the Pi, Coolify builds the Dockerfile directly — but
-# this mirrors the runtime so you can test the full path locally.
+# Local dev / self-host compose for JKL aiAgent Mission Control.
+# One Node service (React app + REST + WebSocket + JAY JAY orchestrator) plus a
+# Postgres for persistent state. On Coolify, point MERIDIAN_BASE_URL at your
+# Meridian service (e.g. http://meridian:8080) and use a managed/persistent DB.
 services:
-  agent:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: mission
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mission}
+      POSTGRES_DB: missioncontrol
+    volumes:
+      - mc-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mission -d missioncontrol"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  app:
     build: .
     ports:
       - "3000:3000"
     environment:
       PORT: 3000
-      HOST: 0.0.0.0
-      # When Meridian runs in this same compose/network, use its service name.
+      DATABASE_URL: postgres://mission:${POSTGRES_PASSWORD:-mission}@db:5432/missioncontrol
+      # Meridian — the Anthropic-compatible proxy in front of your Claude session.
       MERIDIAN_BASE_URL: ${MERIDIAN_BASE_URL:-http://meridian:8080}
       MERIDIAN_API_KEY: ${MERIDIAN_API_KEY:-meridian}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-6}
-      SYSTEM_PROMPT: ${SYSTEM_PROMPT:-You are a helpful AI assistant with access to tools.}
-      AGENT_API_KEY: ${AGENT_API_KEY:-}
-      LOG_LEVEL: ${LOG_LEVEL:-info}
-      DATA_DIR: /app/data
-    volumes:
-      - agent-data:/app/data
+      ANTHROPIC_FAST_MODEL: ${ANTHROPIC_FAST_MODEL:-claude-haiku-4-5-20251001}
+      # Auth — CHANGE THESE before exposing the app.
+      AUTH_USERNAME: ${AUTH_USERNAME:-admin}
+      AUTH_PASSWORD: ${AUTH_PASSWORD:-change-me}
+      SESSION_SECRET: ${SESSION_SECRET:-change-me-to-a-long-random-32-char-string}
+    depends_on:
+      db:
+        condition: service_healthy
     restart: unless-stopped
-    # If Meridian is defined below, uncomment to wait for it:
-    # depends_on:
-    #   - meridian
-
-  # --- OPTIONAL: run Meridian here too, if you aren't already running it ---
-  # Meridian needs access to your Claude Code credentials/session. Adjust the
-  # image and volume mounts to match your Meridian setup (see rynfar/meridian).
-  #
-  # meridian:
-  #   image: ghcr.io/rynfar/meridian:latest   # replace with the tag you use
-  #   ports:
-  #     - "8080:8080"
-  #   volumes:
-  #     - ~/.claude:/home/node/.claude        # mount your Claude Code session
-  #   restart: unless-stopped
 
 volumes:
-  agent-data:
+  mc-db:
