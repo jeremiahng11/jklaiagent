@@ -295,7 +295,12 @@ const DESIGN_BAR =
   "- MOBILE: the app IS the mobile screen — it fills the viewport (responsive, safe-area padding) and looks like the real running app on a phone. NO decorative phone/device frame, bezel, notch, or fake status bar. (On wide desktop you MAY centre it in a plain mobile-width column ~430px, with no device chrome.)\n" +
   "- REALISTIC CARD: gradient background; a gold EMV chip drawn as a small rounded rect with 3-4 thin contact lines (NOT a plain block); a contactless/wifi glyph; the card number as masked dots grouped in 4s ending with 4 real digits; CARD HOLDER name; EXPIRES mm/yy; and the network mark rendered as CLEAN STYLED TEXT — e.g. a bold italic 'VISA' in a sans-serif with letter-spacing — do NOT hand-draw the Visa/Mastercard logo as a complex SVG (it comes out garbled and overlapping). Card aspect ratio ~1.586:1.\n" +
   "- COMPLETE FLOW: build EVERY screen the task implies, in full, with real working navigation between them — do NOT stop after the home/dashboard screen. If the task lists steps (welcome → sign-up/OTP → KYC → account/currency setup → card application → CARD ACTIVATION (show the card + an Activate action + success animation) → set PIN → wallet home → top-up), implement EACH as its own screen. Never skip the activation or success screens. No broken image links — inline SVG, CSS gradients, or emoji only.";
-const BUILD_MAX_TOKENS = 60000;
+// Balanced default: ~18k-token builds stream noticeably faster while still
+// producing a rich multi-screen result. Bump to 32000+ for max-quality builds.
+const BUILD_MAX_TOKENS = Number(process.env.BUILD_MAX_TOKENS || 18000);
+// Balanced: keep Scout's single QA pass but skip the costly Orbit fix-rebuild.
+// Set BUILD_QA_FIX=true to also auto-fix flagged issues (slower, max quality).
+const BUILD_QA_FIX = process.env.BUILD_QA_FIX === "true";
 // The gap between a 2-3 screen sample and a real product. Be exhaustive.
 const CRAFT_BAR =
   "SCALE & COMPLETENESS: a real onboarding/banking flow is 12-20+ distinct screens AND each screen is RICH (a shipping app averages 300-500 lines per screen, not 70). Build the ENTIRE journey end to end — every step plus its empty / loading / success / error states. And make every screen DENSE and real: proper headers, sub-copy, multiple components, realistic data, states and details — NOT a sparse placeholder with one heading and a button. Write ALL the code; never stop early, summarise, or leave '...'. If you're running long, keep going — depth and completeness beat brevity.\n" +
@@ -360,6 +365,11 @@ async function qaAndFixBuild(build, task, model) {
   scoutDone();
   if (qa.clean || !qa.bugs.length) {
     try { addEvent({ kind: "system", text: `Scout QA: "${task.title}" passed — no bugs found.`, taskId: task.id, agentId: "scout" }); } catch {}
+    return build;
+  }
+  // Balanced: surface Scout's findings but don't trigger the expensive rebuild.
+  if (!BUILD_QA_FIX) {
+    try { addEvent({ kind: "review", text: `Scout's QA noted ${qa.bugs.length} item(s) on "${task.title}": ${qa.bugs.slice(0, 3).join("; ")}${qa.bugs.length > 3 ? "…" : ""}`, taskId: task.id, agentId: "scout" }); } catch {}
     return build;
   }
   try { addEvent({ kind: "redo", text: `Scout's QA found ${qa.bugs.length} issue(s) in "${task.title}" — Orbit is fixing…`, taskId: task.id, agentId: task.assignedTo || "orbit" }); } catch {}
