@@ -27,13 +27,15 @@ export const MERIDIAN_API_KEY = process.env.MERIDIAN_API_KEY || "meridian";
 //    notes, the AUTO demo. Cheaper/faster.
 export const HEAVY_MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
 export const LIGHT_MODEL = process.env.ANTHROPIC_FAST_MODEL || "claude-haiku-4-5-20251001";
-export const DEMO_MODEL = process.env.DEMO_MODEL ?? LIGHT_MODEL;
+// AUTO demo is ALWAYS simulated — pure visual entertainment, never a real model
+// call (so leaving AUTO on can't run up usage). Only tasks YOU assign use Claude.
+export const DEMO_MODEL = null;
 
 // Back-compat aliases — the rest of the server still imports these names; they
 // now resolve to the Claude tiers above (heavy = "pro" path, light = "flash" path).
 export const GEMINI_MODEL = HEAVY_MODEL;
 export const GEMINI_FLASH_MODEL = LIGHT_MODEL;
-export const GEMINI_DEMO_MODEL = DEMO_MODEL;
+export const GEMINI_DEMO_MODEL = DEMO_MODEL; // null → AUTO demo is simulated
 export const GEMINI_FLASH_API_KEY = ""; // single Meridian endpoint — no separate key
 export const GEMINI_DAILY_BUDGET_USD = Number(process.env.DAILY_BUDGET_USD || 0);
 

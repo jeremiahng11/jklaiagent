@@ -948,7 +948,7 @@ export default function AgentOffice() {
                 {settings.paused
                   ? <button onClick={() => control("all_hands")} className="mc-btn" style={{ ...SS.btn, ...SS.go }} title="Resume the office — agents pick up queued work again"><Zap size={12} /> RESUME</button>
                   : <button onClick={() => control("clock_out")} className="mc-btn" style={{ ...SS.btn, ...SS.stop }} title="Clock out — pause the office; agents stop taking new tasks"><Power size={12} /> CLOCK OUT</button>}
-                <button onClick={() => control("toggle_autonomous", { autonomous: !settings.autonomous })} className="mc-btn" style={{ ...SS.btn, ...(settings.autonomous ? SS.autoOn : SS.autoOff) }} title="Self-running demo: Jay Jay invents tasks (free Flash model). Your real tasks always use Pro."><Bot size={12} /> AUTO {settings.autonomous ? "ON" : "OFF"}</button>
+                <button onClick={() => control("toggle_autonomous", { autonomous: !settings.autonomous })} className="mc-btn" style={{ ...SS.btn, ...(settings.autonomous ? SS.autoOn : SS.autoOff) }} title="Self-running visual demo: Jay Jay invents fake tasks — simulated only, no AI calls, no cost. Your real tasks always use Claude."><Bot size={12} /> AUTO {settings.autonomous ? "ON" : "OFF"}</button>
               </div>
             </div>
 
