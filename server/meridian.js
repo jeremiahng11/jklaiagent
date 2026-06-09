@@ -490,12 +490,16 @@ export async function recommendStack(task, model = null) {
     : /(react native|react-native|\bexpo\b)/.test(low) ? "react-native"
     : /\breact\b/.test(low) ? "react"
     : /(node\.?js|express|fastify|next\.?js)/.test(low) ? "node" : null;
-  const mockupHint = /(mockup|template|landing page|html template|prototype|single[- ]page|ui kit|design only|just the (ui|design|frontend))/.test(low);
+  // An explicit HTML / mobile-web / mockup / UI-flow request → a self-contained
+  // web mockup; never let the classifier upgrade it to a React/Node app.
+  const mockupHint = /(mockup|wireframe|prototype|html (project|page|mock|template|flow)|mobile[- ]?web|web (app )?mockup|single[- ]?page|landing page|html template|ui kit|screen flow|ui flow|design only|just the (ui|design|frontend))/.test(low)
+    || (/\bhtml\b/.test(low) && /(mockup|flow|screens?|prototype|mobile|onboard|wallet|card)/.test(low));
   if (explicit) return { type: "app", stack: explicit, reason: "you named the stack" };
+  if (mockupHint) return { type: "mockup", stack: "static", reason: "mobile web HTML mockup" };
   if (ai && model) {
     try {
       const txt = await generate(
-        "You are JAY JAY, the CTO, deciding how Development should build this. Is it a MOCKUP (one self-contained HTML/UI prototype) or a full APP/platform (multi-file project, often with a backend or data)? If a full app, recommend ONE stack: django, node, flutter, react, or react-native. Reply ONLY as JSON: {\"type\":\"mockup\"|\"app\",\"stack\":\"static\"|\"django\"|\"node\"|\"flutter\"|\"react\"|\"react-native\",\"reason\":\"<=12 words\"}. stack is \"static\" only when type is mockup.",
+        "You are JAY JAY, the CTO, deciding how Development should build this. Is it a MOCKUP (one self-contained HTML/UI prototype) or a full APP/platform (multi-file project, often with a backend or data)? If a full app, recommend ONE stack: django, node, flutter, react, or react-native. Reply ONLY as JSON: {\"type\":\"mockup\"|\"app\",\"stack\":\"static\"|\"django\"|\"node\"|\"flutter\"|\"react\"|\"react-native\",\"reason\":\"<=12 words\"}. stack is \"static\" only when type is mockup. If the request is a mobile web / HTML mockup, a UI flow, or screens to preview, choose type=mockup.",
         text.slice(0, 1500),
         { json: true, temperature: 0, model }
       );
