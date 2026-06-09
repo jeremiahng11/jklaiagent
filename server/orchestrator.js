@@ -124,9 +124,19 @@ async function runTask(agent, task) {
       if (build) addEvent({ kind: "system", text: `Jay Jay: build "${task.title}" as ${build.type === "app" ? build.stack.toUpperCase() + " app" : "a UI mockup"}${build.reason ? " — " + build.reason : ""}`, agentId: "jeremiah", taskId: task.id });
     }
     let result;
+    // Heartbeat: a real Sonnet build streams for minutes with no intermediate
+    // events, so the office looks frozen. Tick a visible elapsed counter (and a
+    // periodic note) while the agent works, so it's clearly alive.
+    const workStart = Date.now();
+    const beat = isUser ? setInterval(() => {
+      const secs = Math.round((Date.now() - workStart) / 1000);
+      try { setAgent(agent.id, { status: "working", task: `${task.title} · ${secs}s` }); } catch {}
+      try { addEvent({ kind: "system", text: `${agent.name} is still working on "${task.title}" — ${secs}s elapsed${secs >= 120 ? " (big builds take a few minutes)" : ""}`, agentId: agent.id, taskId: task.id }); } catch {}
+    }, 30000) : null;
     try {
       result = await runWork(agent, task, memoryText, model, priorWork, media, tools, toolCtx, upstream, build, attachedProjects);
-    } catch (err) { handleError(agent, task, err); return; }
+    } catch (err) { if (beat) clearInterval(beat); handleError(agent, task, err); return; }
+    if (beat) clearInterval(beat);
     updateTask(task.id, { status: "review", result });
 
     setAgent(agent.id, { status: "thinking", task: `wrapping up: ${task.title}` });
