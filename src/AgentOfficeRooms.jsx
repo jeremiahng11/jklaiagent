@@ -460,7 +460,7 @@ function StatsView({ stats, tasks, agents, onOpenTask, models }) {
   return (
     <div style={SS.libWrap}>
       <h1 style={SS.h1}><Activity size={20} /> Stats</h1>
-      <div style={SS.libSub}>Live control-tower view — the team's throughput and today's spend. Token counts come from the API; dollar figures are estimates. Cost resets at UTC midnight.</div>
+      <div style={SS.libSub}>Live control-tower view — the team's throughput and today's model usage via Meridian. Token counts come from the API and reset at UTC midnight.</div>
 
       <div style={SS.secTitle}>OUTCOMES</div>
       <div style={SS.statCards}>
@@ -470,11 +470,11 @@ function StatsView({ stats, tasks, agents, onOpenTask, models }) {
         <StatCard label="Success rate" value={rate == null ? "—" : rate + "%"} color="#a855f7" />
       </div>
 
-      <div style={SS.secTitle}>COST TODAY (EST.)</div>
+      <div style={SS.secTitle}>USAGE TODAY</div>
       <div style={SS.statCards}>
-        <StatCard label={`${prettyModel(models?.pro?.name) || "heavy"} · ${s.pro.calls} calls`} value={`$${s.estCostPro.toFixed(2)}`} sub={`${fmtTok(s.pro.inTok + s.pro.outTok)} tokens`} color="#facc15" />
-        <StatCard label={`${prettyModel(models?.flash?.name) || "light"} · ${s.flash.calls} calls`} value={`$${s.estCostFlash.toFixed(2)}`} sub={`${fmtTok(s.flash.inTok + s.flash.outTok)} tokens`} color="#67e8f9" />
-        <StatCard label="Total today" value={`$${s.estCostTotal.toFixed(2)}`} sub={`${fmtTok(totalTok)} tokens`} color="#a855f7" />
+        <StatCard label={`${prettyModel(models?.pro?.name) || "heavy"} · ${s.pro.calls} calls`} value={fmtTok(s.pro.inTok + s.pro.outTok)} sub={`${fmtTok(s.pro.inTok)} in · ${fmtTok(s.pro.outTok)} out`} color="#facc15" />
+        <StatCard label={`${prettyModel(models?.flash?.name) || "light"} · ${s.flash.calls} calls`} value={fmtTok(s.flash.inTok + s.flash.outTok)} sub={`${fmtTok(s.flash.inTok)} in · ${fmtTok(s.flash.outTok)} out`} color="#67e8f9" />
+        <StatCard label={`Total · ${s.pro.calls + s.flash.calls} calls`} value={fmtTok(totalTok)} sub="tokens today" color="#a855f7" />
       </div>
 
       <div style={SS.secTitle}>TEAM</div>
@@ -1022,10 +1022,10 @@ export default function AgentOffice() {
                 <span style={SS.statItem}>✓ {stats.tasksDone}</span>
                 <span style={SS.statItem}>✗ {stats.tasksFailed}</span>
                 <span style={SS.statSep}>·</span>
-                <span style={SS.statItem} title={`${models?.pro?.name || "heavy"} tokens today`}>{prettyModel(models?.pro?.name) || "heavy"} {fmtTok(stats.pro.inTok + stats.pro.outTok)} ~${stats.estCostPro.toFixed(2)}</span>
-                <span style={SS.statItem} title={`${models?.flash?.name || "light"} tokens today`}>{prettyModel(models?.flash?.name) || "light"} {fmtTok(stats.flash.inTok + stats.flash.outTok)} ~${stats.estCostFlash.toFixed(2)}</span>
+                <span style={SS.statItem} title={`${models?.pro?.name || "heavy"} tokens today`}>{prettyModel(models?.pro?.name) || "heavy"} {fmtTok(stats.pro.inTok + stats.pro.outTok)}</span>
+                <span style={SS.statItem} title={`${models?.flash?.name || "light"} tokens today`}>{prettyModel(models?.flash?.name) || "light"} {fmtTok(stats.flash.inTok + stats.flash.outTok)}</span>
                 <span style={SS.statSep}>·</span>
-                <span style={{ ...SS.statItem, color: "#67e8f9", fontWeight: 700 }}>~${stats.estCostTotal.toFixed(2)} today</span>
+                <span style={{ ...SS.statItem, color: "#67e8f9", fontWeight: 700 }}>{fmtTok(stats.pro.inTok + stats.pro.outTok + stats.flash.inTok + stats.flash.outTok)} tokens today</span>
                 <span style={{ ...SS.statItem, color: "#5e7088" }}>est.</span>
               </div>
             )}
