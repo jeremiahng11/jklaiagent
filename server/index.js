@@ -20,6 +20,7 @@ import {
   setTaskCredential, getTaskCredentials, getEventsForTask, setAgent,
 } from "./store.js";
 import { startScheduler, seedRoutines } from "./schedule.js";
+import { seedDemoTasks } from "./demoSeed.js";
 import multipart from "@fastify/multipart";
 import {
   startOrchestrator, dispatchNow, allHands, clockOut, getSettings, setSetting, reviewForImprovements,
@@ -442,6 +443,7 @@ app.server.on("upgrade", (req, socket, head) => {
 /* ---------- boot ---------- */
 await initStore();
 seedRoutines();
+if (process.env.SEED_DEMO === "true") { const n = seedDemoTasks(); if (n) console.log(`[demo] seeded ${n} "Visa Payment App" demo tasks (simulated showcase)`); }
 startOrchestrator();
 startScheduler();
 await app.listen({ port: PORT, host: HOST });
