@@ -106,8 +106,8 @@ async function runTask(agent, task) {
     }
     // Tools: every agent can hand off (request_help); Development also gets the
     // API/credential tools. consult() runs a peer department's specialist (Flash).
-    const tools = isUser ? toolsFor(agent.department) : null;
-    const toolCtx = tools ? {
+    let tools = isUser ? toolsFor(agent.department) : null;
+    let toolCtx = tools ? {
       taskId: task.id, agentId: agent.id, agentName: agent.name,
       credentials: getTaskCredentials(task.id),
       consult: (dept, q) => consultAgent(dept, q, lightModel),
@@ -123,6 +123,9 @@ async function runTask(agent, task) {
       build = await recommendStack(task, lightModel).catch(() => null);
       if (build) addEvent({ kind: "system", text: `Jay Jay: build "${task.title}" as ${build.type === "app" ? build.stack.toUpperCase() + " app" : "a UI mockup"}${build.reason ? " — " + build.reason : ""}`, agentId: "jeremiah", taskId: task.id });
     }
+    // A UI mockup is self-contained HTML/CSS/JS — it needs no API/credential
+    // tools, so skip the tool loop (one focused call = faster, more predictable).
+    if (build && build.type === "mockup") { tools = null; toolCtx = null; }
     let result;
     // Heartbeat: a real Sonnet build streams for minutes with no intermediate
     // events, so the office looks frozen. Tick a visible elapsed counter (and a
