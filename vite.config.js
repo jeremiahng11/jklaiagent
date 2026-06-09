@@ -12,9 +12,9 @@ export default defineConfig({
       registerType: "autoUpdate",
       includeAssets: ["favicon-64.png", "apple-touch-icon.png"],
       manifest: {
-        name: "Mission Control — Agent Office",
-        short_name: "Mission Control",
-        description: "Live multi-agent office: assign tasks and watch the CTO orchestrate the team.",
+        name: "JKL aiAgent — Mission Control",
+        short_name: "JKL aiAgent",
+        description: "Live multi-agent office: assign tasks and watch JAY JAY orchestrate the team.",
         theme_color: "#0a0e1a",
         background_color: "#0a0e1a",
         display: "standalone",
