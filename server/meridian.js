@@ -298,13 +298,17 @@ const DESIGN_BAR =
   "- ANIMATION & TRANSITIONS (REQUIRED — not optional): animated screen-to-screen transitions (slide or fade) as the user moves through the flow; button press feedback (scale/opacity); input focus styles; staggered entrance animations for cards & list items; an animated success checkmark on completion/activation; a card reveal on activation; loading/skeleton states where data 'loads'; and smooth value changes (e.g. balance count-up). Drive them with CSS transitions/keyframes + a little JS. It must feel alive and fluid, NOT a static screenshot.\n" +
   "- MOBILE: the app IS the mobile screen — it fills the viewport (responsive, safe-area padding) and looks like the real running app on a phone. NO decorative phone/device frame, bezel, notch, or fake status bar. (On wide desktop you MAY centre it in a plain mobile-width column ~430px, with no device chrome.)\n" +
   "- REALISTIC CARD: gradient background; a gold EMV chip drawn as a small rounded rect with 3-4 thin contact lines (NOT a plain block); a contactless/wifi glyph; the card number as masked dots grouped in 4s ending with 4 real digits; CARD HOLDER name; EXPIRES mm/yy; and the network mark rendered as CLEAN STYLED TEXT — e.g. a bold italic 'VISA' in a sans-serif with letter-spacing — do NOT hand-draw the Visa/Mastercard logo as a complex SVG (it comes out garbled and overlapping). Card aspect ratio ~1.586:1.\n" +
-  "- COMPLETE FLOW: build EVERY screen the task implies, in full, with real working navigation between them — do NOT stop after the home/dashboard screen. If the task lists steps (welcome → sign-up/OTP → KYC → account/currency setup → card application → CARD ACTIVATION (show the card + an Activate action + success animation) → set PIN → wallet home → top-up), implement EACH as its own screen. Never skip the activation or success screens. No broken image links — inline SVG, CSS gradients, or emoji only.";
+  "- COMPLETE FLOW: build EVERY screen the task implies, in full, with real working navigation between them — do NOT stop after the home/dashboard screen. If the task lists steps (welcome → sign-up/OTP → KYC identity verification → account & currency (SGD/USD) setup → card application → CARD ACTIVATION (show the card + an Activate action + success animation) → set PIN → WALLET DASHBOARD → top-up), implement EACH as its own screen. Never skip the activation, success, or dashboard screens. No broken image links — inline SVG, CSS gradients, or emoji only.\n" +
+  "- WALLET DASHBOARD (the destination after onboarding): show the multi-currency balances and the Visa card, recent transactions, and quick actions (top-up, send). Put an EYE toggle on the card that reveals/masks the card number — when tapped it reveals the FIRST group of digits (e.g. 4921 •••• •••• 3087) and hides them again on a second tap. Animate the reveal.";
 // Balanced default: ~18k-token builds stream noticeably faster while still
 // producing a rich multi-screen result. Bump to 32000+ for max-quality builds.
 const BUILD_MAX_TOKENS = Number(process.env.BUILD_MAX_TOKENS || 18000);
 // Balanced: keep Scout's single QA pass but skip the costly Orbit fix-rebuild.
 // Set BUILD_QA_FIX=true to also auto-fix flagged issues (slower, max quality).
 const BUILD_QA_FIX = process.env.BUILD_QA_FIX === "true";
+// Quality: number of build passes. 1 = single shot; 2-3 = iteratively enhance the
+// build toward a flagship standard (slower, much richer). Set BUILD_PASSES=2+.
+const BUILD_PASSES = Math.max(1, Number(process.env.BUILD_PASSES || 1));
 // The gap between a 2-3 screen sample and a real product. Be exhaustive.
 const CRAFT_BAR =
   "SCALE & COMPLETENESS: a real onboarding/banking flow is 12-20+ distinct screens AND each screen is RICH (a shipping app averages 300-500 lines per screen, not 70). Build the ENTIRE journey end to end — every step plus its empty / loading / success / error states. And make every screen DENSE and real: proper headers, sub-copy, multiple components, realistic data, states and details — NOT a sparse placeholder with one heading and a button. Write ALL the code; never stop early, summarise, or leave '...'. If you're running long, keep going — depth and completeness beat brevity.\n" +
@@ -390,6 +394,31 @@ async function qaAndFixBuild(build, task, model) {
   }
 }
 
+// Quality passes: take the build and iteratively RAISE it to a flagship standard.
+// Each pass keeps what works and deepens it; we only accept a pass that doesn't
+// shrink the result (guards against truncation/regressions).
+async function enhanceBuild(build, task, model, system) {
+  if (!ai || !model || !build || BUILD_PASSES <= 1) return build;
+  let cur = build;
+  for (let i = 1; i < BUILD_PASSES; i++) {
+    try { addEvent({ kind: "system", text: `Orbit is polishing "${task.title}" (pass ${i + 1}/${BUILD_PASSES})…`, taskId: task.id, agentId: task.assignedTo || "orbit" }); } catch {}
+    try {
+      const better = await generate(
+        `${system}\n\nThis is a POLISH pass. Below is the current build. RAISE it to a flagship, production-grade standard — the calibre of a real shipped fintech app (Revolut / Wise / Monzo). KEEP everything that already works, then: (1) complete any MISSING screens of the full flow; (2) make every screen denser and more refined (real components, copy, empty/loading/success states, micro-interactions, spacing & typography); (3) ensure the wallet DASHBOARD shows the balances + card with an eye-toggle that reveals the first group of the card number; (4) smooth every transition/animation. Return the COMPLETE updated file(s) — same "===== FILE: path =====" markers, full code, no "..." and no truncation. Do NOT shorten it.`,
+        `TASK: ${task.title}\n\nDETAILS:\n${task.prompt}\n\nCURRENT BUILD:\n${String(cur).slice(0, 120000)}`,
+        { model, maxOutputTokens: BUILD_MAX_TOKENS, temperature: 0.4 }
+      );
+      if (better && better.length > cur.length * 0.85) cur = better;
+    } catch { /* keep current on failure */ }
+  }
+  return cur;
+}
+// Build finishing: enhance (quality passes) then independent QA.
+async function finishBuild(out, task, model, system) {
+  const enhanced = await enhanceBuild(out, task, model, system);
+  return (await qaAndFixBuild(enhanced, task, model)) || `Done: ${task.title}.`;
+}
+
 /* Worker performs the task, building on the department's memory.
    model=null (or no key) => simulated path: no API call, no cost. */
 export async function runWork(agent, task, memoryText = "", model = null, priorWork = null, media = [], tools = null, toolCtx = null, upstream = [], build = null, attachedProjects = []) {
@@ -453,10 +482,10 @@ export async function runWork(agent, task, memoryText = "", model = null, priorW
       ? "\n\nTools: request_help (consult another department), http_request (actually call an API to test it — use {{NAME}} placeholders for secrets), request_credentials (ask the human for sandbox keys). Actually run tests with http_request and report real responses; if you lack a credential, call request_credentials. Use request_help when another department's expertise would improve the result."
       : "\n\nTool: request_help — consult another department's specialist when their expertise would genuinely improve your deliverable (e.g. ask Observatory to research something, Development to sanity-check code, Security for a risk check). Use it sparingly, then fold their answer into your work.";
     const out = await generateWithTools(system + toolNote, userPrompt, { model, media, tools, toolCtx, maxOutputTokens: isBuild ? BUILD_MAX_TOKENS : undefined });
-    return (isBuild ? await qaAndFixBuild(out, task, model) : out) || `Done: ${task.title}.`;
+    return (isBuild ? await finishBuild(out, task, model, system) : out) || `Done: ${task.title}.`;
   }
   const out = await generate(system, userPrompt, { model, media, maxOutputTokens: isBuild ? BUILD_MAX_TOKENS : undefined });
-  return (isBuild ? await qaAndFixBuild(out, task, model) : out) || `Done: ${task.title}.`;
+  return (isBuild ? await finishBuild(out, task, model, system) : out) || `Done: ${task.title}.`;
 }
 
 /* Router: pick the single best department for a task (so "Any" goes to the
