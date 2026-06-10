@@ -785,7 +785,12 @@ export default function AgentOffice() {
       }
       if (from && to && from !== to) {
         const id = e.id;
-        setCommFx((p) => [...p.filter((x) => x.id !== id), { id, from, to, label }].slice(-4));
+        // The actual message the envelope carries: the question (handoff) or the
+        // first QA finding (Scout → Orbit), truncated for the travelling bubble.
+        const afterColon = (e.text.split(/:\s/).slice(1).join(": ") || "").trim();
+        let msg = label === "asks" ? afterColon : label === "bugs" ? (afterColon.split(/;|·/)[0] || "").trim() : "";
+        if (msg) msg = msg.replace(/…$/, "").slice(0, 30);
+        setCommFx((p) => [...p.filter((x) => x.id !== id), { id, from, to, label, msg }].slice(-4));
         setTimeout(() => setCommFx((p) => p.filter((x) => x.id !== id)), 4500);
         // The receiving agent acknowledges the message shortly after it lands.
         const ack = label === "asks" ? "got it! 👍" : label === "bugs" ? "on it!" : label === "QA" ? "checking…" : null;
@@ -1022,6 +1027,21 @@ export default function AgentOffice() {
                           <rect x="-17" y="-8" width="34" height="15" rx="7.5" fill="#070a14" stroke="#67e8f9" strokeOpacity="0.7" />
                           <text x="0" y="2.5" textAnchor="middle" fontSize="8" fontWeight="700" fill="#67e8f9" fontFamily="'JetBrains Mono', monospace" style={{ letterSpacing: "0.5px" }}>{cm.label}</text>
                         </g>
+                        {cm.msg && (
+                          <text fontSize="13" textAnchor="middle">
+                            <animateMotion dur="1.3s" repeatCount="1" fill="freeze" path={path} />
+                            ✉️
+                          </text>
+                        )}
+                        {cm.msg && (() => {
+                          const w = Math.min(190, cm.msg.length * 5.6 + 16);
+                          return (
+                            <g className="comm-msg" transform={`translate(${b.x} ${b.y - 26})`}>
+                              <rect x={-w / 2} y="-9" width={w} height="17" rx="8.5" fill="#070a14" stroke="#67e8f9" strokeOpacity="0.6" />
+                              <text x="0" y="2.5" textAnchor="middle" fontSize="7.5" fill="#cfe3d8" fontFamily="'JetBrains Mono', monospace">{cm.msg}</text>
+                            </g>
+                          );
+                        })()}
                       </g>
                     );
                   })}
@@ -1710,6 +1730,9 @@ const CSS = `
 /* keyboard key-presses while coding */
 .key-flash { animation:keyFlash .55s ease-in-out infinite; } @keyframes keyFlash { 0%,100%{opacity:.3;} 50%{opacity:1;} }
 .comm-line { animation:commDash .6s linear infinite; } @keyframes commDash { to{stroke-dashoffset:-20;} }
+/* the message bubble pops in at the destination once the envelope arrives */
+.comm-msg { opacity:0; animation:commMsgIn .4s ease-out 1.2s forwards; }
+@keyframes commMsgIn { to{opacity:1;} }
 .mc-marquee { animation:marq 26s linear infinite; will-change:transform; } @keyframes marq { from{transform:translateX(0);} to{transform:translateX(-50%);} }
 .mc-btn:hover { filter:brightness(1.15); } .mc-btn:active { transform:scale(.97); }
 `;
