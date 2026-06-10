@@ -423,8 +423,20 @@ async function tick() {
     return;
   }
   processPlans();
+  // Watchdog: a task marked in_progress/review with NO agent actually running it
+  // (its agent isn't in the busy set) is orphaned — e.g. a dropped run — so it
+  // would sit forever. Re-queue it so it gets dispatched again.
+  for (const t of getTasks()) {
+    if (!t.isPlan && ["in_progress", "review"].includes(t.status) && t.assignedTo && !busy.has(t.assignedTo)) {
+      updateTask(t.id, { status: "queued", startedAt: null, attempts: 0, reviewNotes: "re-dispatched (no active run)" });
+      if (t.result && !t.priorWork) updateTask(t.id, { priorWork: t.result });
+    }
+  }
   for (const agent of getWorkers()) {
-    if (agent.status !== "idle" || busy.has(agent.id)) continue;
+    if (busy.has(agent.id)) continue; // genuinely running a task — leave it
+    // Not in the busy set ⇒ no active run. If the agent is wedged in a non-idle
+    // state, free it so it can pick up queued work (fixes "stuck in queue").
+    if (agent.status !== "idle") setAgent(agent.id, { status: "idle", task: "standing by", currentTaskId: null });
     const task = nextTaskFor(agent);
     if (task) {
       runTask(agent, task); // fire-and-forget; busy set prevents double assignment
