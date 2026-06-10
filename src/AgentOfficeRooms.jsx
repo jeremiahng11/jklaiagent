@@ -107,8 +107,8 @@ const META = {
 const ROOM_LABEL = { "WORKSHOP": "DEVELOPMENT CENTER", "ARCHIVE": "ADMIN" };
 const roomLabel = (r) => ROOM_LABEL[r] || r;
 
-const STATUS_COLOR = { queued: "#64786d", in_progress: "#4ade80", review: "#eab308", done: "#38bdf8", failed: "#fb5570", blocked: "#fb923c", planning: "#a855f7" };
-const STATUS_LABEL = { queued: "QUEUED", in_progress: "WORKING", review: "REVIEW", done: "DONE", failed: "FAILED", blocked: "ISSUE", planning: "PLANNING" };
+const STATUS_COLOR = { queued: "#64786d", in_progress: "#4ade80", review: "#eab308", done: "#38bdf8", failed: "#fb5570", blocked: "#fb923c", planning: "#a855f7", paused: "#fbbf24" };
+const STATUS_LABEL = { queued: "QUEUED", in_progress: "WORKING", review: "REVIEW", done: "DONE", failed: "FAILED", blocked: "ISSUE", planning: "PLANNING", paused: "PAUSED · RETRYING" };
 
 /* --- pixel Pac-Man sprite for the CTO (Jay Jay), drawn like the octopus --- */
 const PAC_OPEN = ["....XXXXX....", "..XXXXXXXXX..", ".XXXXXXXXXXX.", "XXXXXXXXXXXXX", "XXXXXXXXXXX..", "XXXXXXXXX....", "XXXXXX.......", "XXXXXXXXX....", "XXXXXXXXXXX..", "XXXXXXXXXXXXX", ".XXXXXXXXXXX.", "..XXXXXXXXX..", "....XXXXX...."];
@@ -655,7 +655,7 @@ export default function AgentOffice() {
     : null;
 
   const taskList = Object.values(tasks).sort((a, b) => b.createdAt - a.createdAt);
-  const activeTasks = taskList.filter((t) => ["queued", "in_progress", "review"].includes(t.status));
+  const activeTasks = taskList.filter((t) => ["queued", "in_progress", "review", "paused", "planning"].includes(t.status));
   const selectedTask = selected ? tasks[selected] : null;
 
   // Command-palette search hits (across tasks, docs, memory).
@@ -1427,7 +1427,7 @@ export default function AgentOffice() {
               </>
             )}
             <div style={SS.modalActions}>
-              {["failed", "blocked", "in_progress", "review", "planning"].includes(selectedTask.status) && <button style={SS.continueBtn} onClick={() => retryTask(selectedTask.id).then((r) => alert(r && r.alreadyRunning ? "This task is already being built right now — just let it finish (watch the Visual office)." : "Jay Jay is re-dispatching this task — watch the Visual office.")).catch((e) => alert("Couldn't continue: " + e.message + (/not found/i.test(e.message) ? " (the task no longer exists — re-assign it fresh)" : "")))}><RotateCw size={13} /> CONTINUE TASK</button>}
+              {["failed", "blocked", "in_progress", "review", "planning", "paused"].includes(selectedTask.status) && <button style={SS.continueBtn} onClick={() => retryTask(selectedTask.id).then((r) => alert(r && r.alreadyRunning ? "This task is already being built right now — just let it finish (watch the Visual office)." : "Jay Jay is re-dispatching this task — watch the Visual office.")).catch((e) => alert("Couldn't continue: " + e.message + (/not found/i.test(e.message) ? " (the task no longer exists — re-assign it fresh)" : "")))}><RotateCw size={13} /> CONTINUE TASK</button>}
               {(() => {
                 const td = documents.find((d) => d.taskId === selectedTask.id);
                 if (!td) return null;

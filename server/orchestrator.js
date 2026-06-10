@@ -45,7 +45,7 @@ const depsMet = (t) => !(t.dependsOn || []).some((id) => { const d = getTask(id)
 function nextTaskFor(agent) {
   // Plan tasks are orchestrated by processPlans (decompose -> synthesize), not
   // worked directly by an agent. Tasks waiting on dependencies are held.
-  const queued = getTasks().filter((t) => t.status === "queued" && !t.isPlan && depsMet(t) && (!t.nextRunAt || t.nextRunAt <= Date.now()));
+  const queued = getTasks().filter((t) => ["queued", "paused"].includes(t.status) && !t.isPlan && depsMet(t) && (!t.nextRunAt || t.nextRunAt <= Date.now()));
   // Higher priority first, then oldest first.
   const RANK = { high: 0, normal: 1, low: 2 };
   const byAge = (a, b) => (RANK[a.priority] ?? 1) - (RANK[b.priority] ?? 1) || a.createdAt - b.createdAt;
@@ -203,6 +203,8 @@ function classify(err) {
   // Bad/unknown model name or other invalid-argument config — retrying won't help.
   if (/unexpected model name|INVALID_ARGUMENT|model.*not found|not found.*model|unsupported model/i.test(msg)) return { kind: "config", blocking: true, msg };
   if (/\b40[13]\b|api key|permission|unauthenticat|invalid.*key/i.test(msg)) return { kind: "auth", blocking: true, msg };
+  // Connection drop (Meridian restarting / network blip) — pause and auto-reconnect.
+  if (/ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN|fetch failed|socket hang up|network|\b50[24]\b/i.test(msg)) return { kind: "connection", capacity: true, blocking: false, msg };
   return { kind: "error", blocking: false, msg };
 }
 
@@ -213,13 +215,17 @@ function handleError(agent, task, err) {
   // blocking the whole office. Only give up after several tries.
   if (c.capacity) {
     const tries = (task.capacityRetries || 0) + 1;
-    if (tries <= 6) {
-      const delay = Math.min(150000, 30000 + tries * 20000); // ~50s..150s
-      updateTask(task.id, { status: "queued", capacityRetries: tries, attempts: 0, startedAt: null, nextRunAt: Date.now() + delay, reviewNotes: "waiting for model capacity/quota" });
-      addEvent({ kind: "system", text: `${agent.name}: model busy / quota-limited — retrying "${task.title}" in ${Math.round(delay / 1000)}s (try ${tries}/6)`, agentId: agent.id, taskId: task.id });
+    const MAX_PAUSE_RETRIES = 30; // ~persistent: rate limits / connection blips clear on their own
+    if (tries <= MAX_PAUSE_RETRIES) {
+      const delay = Math.min(120000, 15000 + tries * 10000); // ~25s..120s, capped
+      const why = c.kind === "connection" ? "reconnecting to Meridian" : "waiting for model capacity";
+      // PAUSE (not failed): the orchestrator re-picks paused tasks once nextRunAt
+      // passes, so it auto-retries until the model/connection is back.
+      updateTask(task.id, { status: "paused", capacityRetries: tries, attempts: 0, startedAt: null, nextRunAt: Date.now() + delay, reviewNotes: `paused — ${why}; auto-retrying (try ${tries})` });
+      if (tries === 1 || tries % 5 === 0) addEvent({ kind: "system", text: `${agent.name}: ${c.kind === "connection" ? "lost connection to Meridian" : "model busy / rate-limited"} — paused "${task.title}", auto-retrying in ${Math.round(delay / 1000)}s (try ${tries})`, agentId: agent.id, taskId: task.id });
       return;
     }
-    c.blocking = true; c.kind = "quota"; // exhausted — surface it
+    c.blocking = true; if (c.kind !== "connection") c.kind = "quota"; // exhausted — surface it
   }
   if (c.blocking) {
     updateTask(task.id, { status: "blocked", startedAt: null, reviewNotes: c.msg.slice(0, 200) });
