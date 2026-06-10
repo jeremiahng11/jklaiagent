@@ -7,9 +7,12 @@ COPY package.json package-lock.json* ./
 RUN npm ci
 COPY . .
 RUN npm run build
-# Pre-download the local embeddings model into ./.models so the runtime image
-# needs no network for semantic memory (RAG).
-RUN node -e "import('./server/embeddings.js').then(m=>m.warmEmbeddings()).then(n=>console.log('[build] embeddings model cached, dim',n)).catch(e=>{console.error(e);process.exit(1)})"
+# Best-effort: pre-download the local embeddings model into ./.models so the
+# runtime image needs no network for RAG. NON-FATAL — if the download is blocked
+# or slow during the build, we just skip it (the model downloads at runtime on
+# first use, or falls back to keyword recall). Always create the dir so the
+# later COPY of ./.models succeeds either way.
+RUN mkdir -p .models && (node -e "import('./server/embeddings.js').then(m=>m.warmEmbeddings()).then(n=>console.log('[build] embeddings cached, dim',n)).catch(e=>console.warn('[build] embeddings prefetch skipped (will download at runtime):', e && e.message))" || true)
 
 # --- Stage 2: production-only deps ---
 FROM node:22-bookworm-slim AS deps
