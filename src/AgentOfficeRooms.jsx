@@ -751,8 +751,18 @@ export default function AgentOffice() {
   // every snapshot/poll, so it can't be missed like a transient status or a
   // one-off socket event. One delivery per task; the patrol loop walks Jay over.
   const deliveredRef = useRef({});
+  const deliverySeededRef = useRef(false);
   useEffect(() => {
-    for (const id of Object.keys(tasks)) {
+    const ids = Object.keys(tasks);
+    if (!ids.length) return;
+    // First load: tasks already in_progress were delivered before this page
+    // existed — mark them done so a refresh doesn't replay the walk to them.
+    if (!deliverySeededRef.current) {
+      deliverySeededRef.current = true;
+      for (const id of ids) if (tasks[id].status === "in_progress") deliveredRef.current[id] = true;
+      return;
+    }
+    for (const id of ids) {
       const t = tasks[id];
       if (t.status === "in_progress" && t.assignedTo && !deliveredRef.current[id]) {
         deliveredRef.current[id] = true;
