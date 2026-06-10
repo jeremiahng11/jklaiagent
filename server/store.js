@@ -143,11 +143,14 @@ function deleteCredentialsForTask(taskId) {
 /* ---------- boot ---------- */
 const SCHEMA = process.env.DB_SCHEMA || "mission_control";
 
-/* ---------- File persistence (used only when there's no Postgres) ----------
-   Snapshots durable state to DATA_DIR/state.json (atomically, debounced) so
-   completed tasks/documents/memory survive a redeploy via a mounted volume.
+/* ---------- File persistence ----------
+   Snapshots durable state to DATA_DIR/state.json (atomically, debounced).
+   - No Postgres: this IS the store (survives redeploys via a mounted volume).
+   - With Postgres: it's a BACKUP MIRROR; on boot, if the DB is empty but a
+     snapshot exists, it's restored into Postgres (recovers a wiped DB and
+     migrates pre-Postgres file data). Enabled whenever DATA_DIR is writable.
    Attachments + credentials are intentionally NOT written (bulky / sensitive). */
-const useFileStore = !DATABASE_URL;
+let fileEnabled = false;
 const STATE_FILE = path.join(DATA_DIR, "state.json");
 let saveTimer = null, saving = false, saveAgain = false;
 
@@ -178,6 +181,28 @@ async function loadFromDisk() {
     if (e.code !== "ENOENT") console.warn("[store] disk load failed:", e.message);
   }
 }
+// Postgres is empty but a snapshot exists → load it into memory AND write it
+// through to Postgres (DB recovery / one-time migration from the file store).
+async function restoreFromDisk() {
+  try {
+    const d = JSON.parse(await fs.readFile(STATE_FILE, "utf8"));
+    let n = 0;
+    if (Array.isArray(d.memory)) for (const [scope, m] of d.memory) { state.memory.set(scope, m); persistMemory(m); }
+    if (Array.isArray(d.routines)) for (const r of d.routines) { state.routines.set(r.id, r); persistRoutine(r); }
+    if (Array.isArray(d.tasks)) for (const t of d.tasks) { state.tasks.set(t.id, t); persistTask(t); n++; }
+    if (Array.isArray(d.documents)) for (const doc of d.documents) { state.documents.push(doc); persistDocument(doc); }
+    if (Array.isArray(d.memNotes)) for (const note of d.memNotes) {
+      state.memNotes.push(note);
+      if (pool) pool.query("INSERT INTO mem_notes (id,scope,text,embedding,task_id,created_at) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO NOTHING",
+        [note.id, note.scope, note.text, note.embedding ? JSON.stringify(note.embedding) : null, note.taskId || null, new Date(note.createdAt)]).catch(() => {});
+    }
+    if (Array.isArray(d.events)) state.events = d.events;
+    if (d.usage) state.usage = d.usage;
+    if (n) console.log(`[store] restored ${n} tasks from snapshot into Postgres (${STATE_FILE})`);
+  } catch (e) {
+    if (e.code !== "ENOENT") console.warn("[store] restore failed:", e.message);
+  }
+}
 async function doSave() {
   if (saving) { saveAgain = true; return; }
   saving = true;
@@ -193,7 +218,7 @@ async function doSave() {
   }
 }
 function scheduleSave() {
-  if (!useFileStore || saveTimer) return;
+  if (!fileEnabled || saveTimer) return;
   saveTimer = setTimeout(() => { saveTimer = null; doSave(); }, 2000);
 }
 
@@ -215,12 +240,20 @@ export async function initStore() {
   // so a dismissed/cleared issue can never resurrect on restart.
   if (pool) { await loadTasks(); await loadDocuments(); await loadMemory(); await loadAttachments(); await loadRoutines(); await loadCredentials(); await loadMemNotes(); }
   if (pool) pool.query("DELETE FROM issues").catch(() => {}); // clear any stale persisted issues
-  // No Postgres → load the JSON snapshot and persist future changes to disk.
-  if (useFileStore) {
-    await loadFromDisk();
+  // Enable the file layer if DATA_DIR is writable (primary store without PG, or
+  // a backup mirror beside PG). Stays off (no noise) when there's no volume.
+  try { await fs.mkdir(DATA_DIR, { recursive: true }); fileEnabled = true; } catch { fileEnabled = false; }
+  if (fileEnabled) {
+    if (!pool) {
+      await loadFromDisk(); // file is the source of truth
+    } else if (state.tasks.size === 0 && state.documents.length === 0) {
+      await restoreFromDisk(); // empty DB + a snapshot → recover/migrate into PG
+    }
     for (const ev of ["task", "tasksReset", "document", "memory", "routine", "stats"]) bus.on(ev, scheduleSave);
+    scheduleSave(); // write an initial mirror
   }
-  console.log(`[store] ready (${pool ? "postgres" : useFileStore ? "file: " + STATE_FILE : "in-memory"})`);
+  const mode = pool ? "postgres" : fileEnabled ? "file" : "in-memory";
+  console.log(`[store] ready (${mode}${pool && fileEnabled ? " + file backup" : ""})${fileEnabled ? " " + STATE_FILE : ""}`);
 }
 
 // Drop issues whose task is gone or no longer failing (e.g. it later completed),
