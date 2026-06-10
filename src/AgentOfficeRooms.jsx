@@ -697,7 +697,8 @@ export default function AgentOffice() {
       // Task ready: leave HQ, stroll over and stand beside the agent for a quick
       // face-to-face briefing (both bubble back and forth), then walk back.
       const c = spot(item.room, 0.52, 0.6); // beside the agent
-      if (!c) { T.push(setTimeout(jayStep, 1200)); return; }
+      // Room not measurable yet — put the delivery back and retry shortly (never drop it).
+      if (!c) { jayQueue.current.unshift(item); T.push(setTimeout(jayStep, 700)); return; }
       const dur = goTo(c, `→ ${item.name}`);
       const t0 = dur * 1000 + 450;
       const beats = [
@@ -716,13 +717,14 @@ export default function AgentOffice() {
         T.push(setTimeout(jayStep, 1600));
       }, t0 + beats.length * 1250 + 500));
     } else if (Math.random() > 0.28) {
-      // Pace around HQ: a fresh spot (varied x and y), then a pause.
+      // Pace around HQ: a fresh spot (varied x and y), then a short pause so a
+      // newly-queued delivery is picked up within ~1-2s.
       const c = spot("COMMAND HQ", 0.15 + Math.random() * 0.7, 0.6 + Math.random() * 0.2);
       const dur = c ? goTo(c) : 0;
-      T.push(setTimeout(jayStep, dur * 1000 + 900 + Math.random() * 2600));
+      T.push(setTimeout(jayStep, dur * 1000 + 600 + Math.random() * 900));
     } else {
       // Sometimes just stay put for a beat.
-      T.push(setTimeout(jayStep, 1400 + Math.random() * 2400));
+      T.push(setTimeout(jayStep, 700 + Math.random() * 800));
     }
   };
 
