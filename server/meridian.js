@@ -64,14 +64,14 @@ const withTimeout = (p, ms = TIMEOUT_MS) => Promise.race([p, new Promise((_, rej
 // reliably finishes before the timeout. Conservative on purpose (Max-plan
 // endpoints are slow); the fit-cap shrinks oversized builds so they COMPLETE
 // rather than time out. Raise LLM_EST_TPS if your endpoint is fast.
-const EST_TPS = Number(process.env.LLM_EST_TPS || 16);
+const EST_TPS = Number(process.env.LLM_EST_TPS || 11);
 
 // Cap output tokens per tier (model limit) AND to what can be generated within
 // the timeout (so a big request can't time out and loop). Sized from EST_TPS.
 function clampTokens(req, model) {
   const hard = isLight(model) ? 8000 : 32000;
-  const fit = Math.floor((TIMEOUT_MS / 1000) * EST_TPS * 0.8); // leave 20% headroom
-  const cap = Math.min(hard, Math.max(2000, fit));
+  const fit = Math.floor((TIMEOUT_MS / 1000) * EST_TPS * 0.7); // 30% headroom (slow/jittery endpoints)
+  const cap = Math.min(hard, Math.max(1500, fit));
   return Math.max(512, Math.min(req || 4096, cap));
 }
 // Pull JSON out of a reply (Claude may wrap it in prose or ``` fences).
