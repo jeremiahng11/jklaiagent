@@ -43,7 +43,7 @@ npm start                   # serves app + API + WebSocket + orchestrator on :30
 # dev: two terminals — `npm run dev` (Vite) and `npm run dev:server`
 ```
 
-Without `DATABASE_URL` the server keeps state in memory (resets on restart). With it, state persists in Postgres.
+Persistence: with `DATABASE_URL` set, state lives in **Postgres** (durable). Without it, the server snapshots state to **`DATA_DIR/state.json`** (default `/app/data`) — mount a volume there so completed tasks/documents/memory survive redeploys. (Uploaded attachments aren't snapshotted to disk; the deliverables they produced are.)
 
 ### Docker (Postgres included)
 

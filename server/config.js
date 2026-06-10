@@ -15,6 +15,9 @@ export const AUTH_PASSWORD = process.env.AUTH_PASSWORD || "admin";
 export const COOKIE_NAME = "mc_session";
 
 export const DATABASE_URL = process.env.DATABASE_URL || "";
+// When there's no Postgres, state is persisted to a JSON snapshot here so it
+// survives redeploys. Mount a volume at this path (Coolify destination /app/data).
+export const DATA_DIR = process.env.DATA_DIR || "/app/data";
 
 // --- Meridian (Anthropic-compatible proxy in front of Claude) ---
 export const MERIDIAN_BASE_URL = process.env.MERIDIAN_BASE_URL || "http://localhost:8080";

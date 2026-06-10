@@ -5,9 +5,11 @@
 
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
+import { promises as fs } from "node:fs";
+import path from "node:path";
 import pg from "pg";
 import { AGENT_DEFS } from "./agents.js";
-import { DATABASE_URL } from "./config.js";
+import { DATABASE_URL, DATA_DIR } from "./config.js";
 
 const { Pool } = pg;
 export const bus = new EventEmitter();
@@ -129,6 +131,60 @@ function deleteCredentialsForTask(taskId) {
 /* ---------- boot ---------- */
 const SCHEMA = process.env.DB_SCHEMA || "mission_control";
 
+/* ---------- File persistence (used only when there's no Postgres) ----------
+   Snapshots durable state to DATA_DIR/state.json (atomically, debounced) so
+   completed tasks/documents/memory survive a redeploy via a mounted volume.
+   Attachments + credentials are intentionally NOT written (bulky / sensitive). */
+const useFileStore = !DATABASE_URL;
+const STATE_FILE = path.join(DATA_DIR, "state.json");
+let saveTimer = null, saving = false, saveAgain = false;
+
+function diskSnapshot() {
+  return {
+    v: 1,
+    tasks: [...state.tasks.values()],
+    events: state.events.slice(0, MAX_EVENTS),
+    documents: state.documents,
+    memory: [...state.memory.entries()],
+    routines: [...state.routines.values()],
+    memNotes: state.memNotes,
+    usage: state.usage,
+  };
+}
+async function loadFromDisk() {
+  try {
+    const d = JSON.parse(await fs.readFile(STATE_FILE, "utf8"));
+    if (Array.isArray(d.tasks)) for (const t of d.tasks) state.tasks.set(t.id, t);
+    if (Array.isArray(d.events)) state.events = d.events;
+    if (Array.isArray(d.documents)) state.documents = d.documents;
+    if (Array.isArray(d.memory)) state.memory = new Map(d.memory);
+    if (Array.isArray(d.routines)) for (const r of d.routines) state.routines.set(r.id, r);
+    if (Array.isArray(d.memNotes)) state.memNotes = d.memNotes;
+    if (d.usage) state.usage = d.usage;
+    console.log(`[store] loaded ${state.tasks.size} tasks from ${STATE_FILE}`);
+  } catch (e) {
+    if (e.code !== "ENOENT") console.warn("[store] disk load failed:", e.message);
+  }
+}
+async function doSave() {
+  if (saving) { saveAgain = true; return; }
+  saving = true;
+  try {
+    await fs.mkdir(DATA_DIR, { recursive: true });
+    const tmp = STATE_FILE + ".tmp";
+    await fs.writeFile(tmp, JSON.stringify(diskSnapshot()));
+    await fs.rename(tmp, STATE_FILE);
+  } catch (e) { console.warn("[store] disk save failed:", e.message); }
+  finally {
+    saving = false;
+    if (saveAgain) { saveAgain = false; scheduleSave(); }
+  }
+}
+function scheduleSave() {
+  if (!useFileStore || saveTimer) return;
+  saveTimer = setTimeout(() => { saveTimer = null; doSave(); }, 2000);
+}
+
 export async function initStore() {
   if (DATABASE_URL) {
     // Keep our tables in their own schema so the DB can be safely shared with
@@ -147,7 +203,12 @@ export async function initStore() {
   // so a dismissed/cleared issue can never resurrect on restart.
   if (pool) { await loadTasks(); await loadDocuments(); await loadMemory(); await loadAttachments(); await loadRoutines(); await loadCredentials(); await loadMemNotes(); }
   if (pool) pool.query("DELETE FROM issues").catch(() => {}); // clear any stale persisted issues
-  console.log(`[store] ready (${pool ? "postgres" : "in-memory"})`);
+  // No Postgres → load the JSON snapshot and persist future changes to disk.
+  if (useFileStore) {
+    await loadFromDisk();
+    for (const ev of ["task", "tasksReset", "document", "memory", "routine", "stats"]) bus.on(ev, scheduleSave);
+  }
+  console.log(`[store] ready (${pool ? "postgres" : useFileStore ? "file: " + STATE_FILE : "in-memory"})`);
 }
 
 // Drop issues whose task is gone or no longer failing (e.g. it later completed),
@@ -589,6 +650,7 @@ export function addMemoryNote(scope, text, taskId = null, embedding = null) {
     "INSERT INTO mem_notes (id,scope,text,embedding,task_id,created_at) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO NOTHING",
     [note.id, scope, note.text, note.embedding ? JSON.stringify(note.embedding) : null, taskId, new Date(note.createdAt)]
   ).catch((e) => console.error("[store] addMemoryNote", e.message));
+  scheduleSave(); // memNotes don't emit on the bus — persist them explicitly
   return note;
 }
 
