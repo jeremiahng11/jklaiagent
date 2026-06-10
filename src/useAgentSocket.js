@@ -22,26 +22,28 @@ export function useAgentSocket() {
   const [connected, setConnected] = useState(false);
   const wsRef = useRef(null);
 
+  // Apply a full snapshot (from the WS snapshot frame OR a /api/state poll).
+  const applySnapshot = useCallback((s) => {
+    if (!s) return;
+    setAgents(Object.fromEntries((s.agents || []).map((a) => [a.id, a])));
+    setTasks(Object.fromEntries((s.tasks || []).map((t) => [t.id, t])));
+    setEvents(s.events || []);
+    setDocuments(s.documents || []);
+    setMemory(s.memory || []);
+    setIssues(s.issues || []);
+    setRoutines(s.routines || []);
+    if (s.stats) setStats(s.stats);
+    if (s.settings) setSettings(s.settings);
+    if (typeof s.gemini === "boolean") setGemini(s.gemini);
+    if (typeof s.model === "string") setModel(s.model);
+    if (typeof s.demoModel === "string") setDemoModel(s.demoModel);
+    if (s.models) setModels(s.models);
+  }, []);
+
   useEffect(() => {
     let stopped = false;
     let retry = 0;
     let ws;
-
-    const applySnapshot = (s) => {
-      setAgents(Object.fromEntries((s.agents || []).map((a) => [a.id, a])));
-      setTasks(Object.fromEntries((s.tasks || []).map((t) => [t.id, t])));
-      setEvents(s.events || []);
-      setDocuments(s.documents || []);
-      setMemory(s.memory || []);
-      setIssues(s.issues || []);
-      setRoutines(s.routines || []);
-      if (s.stats) setStats(s.stats);
-      if (s.settings) setSettings(s.settings);
-      if (typeof s.gemini === "boolean") setGemini(s.gemini);
-      if (typeof s.model === "string") setModel(s.model);
-      if (typeof s.demoModel === "string") setDemoModel(s.demoModel);
-      if (s.models) setModels(s.models);
-    };
 
     const connect = () => {
       const proto = location.protocol === "https:" ? "wss" : "ws";
@@ -104,7 +106,22 @@ export function useAgentSocket() {
 
     connect();
     return () => { stopped = true; try { ws && ws.close(); } catch {} };
-  }, []);
+  }, [applySnapshot]);
+
+  // Background refresh: poll the snapshot so activity/status stay fresh even when
+  // the live socket is dropped by a proxy — no manual reload needed. Fast while
+  // the socket is down, a slow safety-net while it's up.
+  useEffect(() => {
+    let stop = false;
+    const poll = () => {
+      fetch("/api/state", { credentials: "same-origin" })
+        .then((r) => { if (r.status === 401) { location.href = "/login"; return null; } return r.ok ? r.json() : null; })
+        .then((s) => { if (!stop && s) applySnapshot(s); })
+        .catch(() => {});
+    };
+    const id = setInterval(poll, connected ? 20000 : 3000);
+    return () => { stop = true; clearInterval(id); };
+  }, [connected, applySnapshot]);
 
   const assignTask = useCallback((t, files) => api.createTask(t, files).catch((e) => console.error(e)), []);
   const deleteTask = useCallback((id) => api.deleteTask(id).catch(() => {}), []);
