@@ -124,8 +124,16 @@ async function runTask(agent, task) {
       if (build) addEvent({ kind: "system", text: `Jay Jay: build "${task.title}" as ${build.type === "app" ? build.stack.toUpperCase() + " app" : "a UI mockup"}${build.reason ? " — " + build.reason : ""}`, agentId: "jeremiah", taskId: task.id });
     }
     // A UI mockup is self-contained HTML/CSS/JS — it needs no API/credential
-    // tools, so skip the tool loop (one focused call = faster, more predictable).
-    if (build && build.type === "mockup") { tools = null; toolCtx = null; }
+    // tools, so skip the tool loop, and build it on the FAST tier so it actually
+    // completes in a minute or two (Sonnet builds were exceeding the timeout).
+    // Override with BUILD_MODEL; app/code builds stay on the heavy tier.
+    let workModel = model;
+    if (build && build.type === "mockup") {
+      tools = null; toolCtx = null;
+      // Default to the heavy tier for quality; set BUILD_MODEL to a fast model
+      // (e.g. the Haiku id) to make mockups build in ~1-2 min instead of ~5-7.
+      workModel = process.env.BUILD_MODEL || model;
+    }
     let result;
     // Heartbeat: a real Sonnet build streams for minutes with no intermediate
     // events, so the office looks frozen. Tick a visible elapsed counter (and a
@@ -137,7 +145,7 @@ async function runTask(agent, task) {
       try { addEvent({ kind: "system", text: `${agent.name} is still working on "${task.title}" — ${secs}s elapsed${secs >= 120 ? " (big builds take a few minutes)" : ""}`, agentId: agent.id, taskId: task.id }); } catch {}
     }, 30000) : null;
     try {
-      result = await runWork(agent, task, memoryText, model, priorWork, media, tools, toolCtx, upstream, build, attachedProjects);
+      result = await runWork(agent, task, memoryText, workModel, priorWork, media, tools, toolCtx, upstream, build, attachedProjects);
     } catch (err) { if (beat) clearInterval(beat); handleError(agent, task, err); return; }
     if (beat) clearInterval(beat);
     updateTask(task.id, { status: "review", result });

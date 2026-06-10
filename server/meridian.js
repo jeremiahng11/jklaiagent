@@ -47,9 +47,10 @@ const isTransient = (msg) => /\b5(00|02|03|29)\b|overloaded|UNAVAILABLE|high dem
 
 // Generous so big builds / follow-ups don't time out; still bounded so a hung
 // call can't freeze an agent forever. Override with LLM_TIMEOUT_MS.
-// Generous: streamed builds (big max_tokens) can run for minutes. Bounded so a
-// hung call can't pin an agent forever. Override with LLM_TIMEOUT_MS.
-const TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS || process.env.GEMINI_TIMEOUT_MS || 600000);
+// Enough for one full Balanced build to finish in a SINGLE attempt (timeouts are
+// not retried). A genuine stall surfaces a clear failure here instead of hanging
+// for 30+ min. Override with LLM_TIMEOUT_MS.
+const TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS || process.env.GEMINI_TIMEOUT_MS || 720000);
 const withTimeout = (p, ms = TIMEOUT_MS) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("Meridian request timed out")), ms))]);
 
 // Cap output tokens per tier so a request can't exceed the model's limit.
@@ -145,9 +146,12 @@ async function callModel(system, prompt, { json = false, temperature = 0.7, mode
       return json ? extractJson(text) : text;
     } catch (e) {
       const msg = e?.message || String(e);
+      // Our own timeout must NEVER be retried — retrying at full duration multiplies
+      // the wait (a stalled call became ~40 min). Fail it so the task re-queues.
+      const timedOut = /timed out/i.test(msg);
       // Back off and retry on rate-limit / overload / transient 5xx — these clear
       // on their own; the heavy→light fallback handles harder failures.
-      const retryable = isTransient(msg) || isRateLimit(msg);
+      const retryable = !timedOut && (isTransient(msg) || isRateLimit(msg));
       if (attempt < MAX_TRIES - 1 && retryable) {
         const m = msg.match(/retry.*?([\d.]+)s/i);
         const delay = m
