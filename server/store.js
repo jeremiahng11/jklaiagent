@@ -203,6 +203,17 @@ async function restoreFromDisk() {
     if (e.code !== "ENOENT") console.warn("[store] restore failed:", e.message);
   }
 }
+// Postgres doesn't store the daily usage counters or the global activity ticker,
+// so bring those back from the snapshot on boot (usage auto-resets next UTC day).
+async function loadAuxFromDisk() {
+  try {
+    const d = JSON.parse(await fs.readFile(STATE_FILE, "utf8"));
+    if (Array.isArray(d.events) && !state.events.length) state.events = d.events;
+    if (d.usage) state.usage = d.usage;
+  } catch (e) {
+    if (e.code !== "ENOENT") console.warn("[store] aux load failed:", e.message);
+  }
+}
 async function doSave() {
   if (saving) { saveAgain = true; return; }
   saving = true;
@@ -248,6 +259,8 @@ export async function initStore() {
       await loadFromDisk(); // file is the source of truth
     } else if (state.tasks.size === 0 && state.documents.length === 0) {
       await restoreFromDisk(); // empty DB + a snapshot → recover/migrate into PG
+    } else {
+      await loadAuxFromDisk(); // DB has data — still restore the ticker + today's usage
     }
     for (const ev of ["task", "tasksReset", "document", "memory", "routine", "stats"]) bus.on(ev, scheduleSave);
     scheduleSave(); // write an initial mirror
