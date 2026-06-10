@@ -747,29 +747,23 @@ export default function AgentOffice() {
     return () => { clearTimeout(start); jayTimers.current.forEach(clearTimeout); jayTimers.current = []; };
   }, [view]);
 
-  // Drive Jay Jay's delivery off the agent ENTERING its briefing state (which is
-  // in every snapshot/poll), not a one-off assign event a flaky socket can miss.
-  // The agent holds "receiving brief"/"picking up" for a few seconds, so the
-  // patrol loop reliably walks Jay Jay over to hand off the task.
+  // Drive Jay Jay's delivery off a task ENTERING in_progress — a DURABLE state in
+  // every snapshot/poll, so it can't be missed like a transient status or a
+  // one-off socket event. One delivery per task; the patrol loop walks Jay over.
   const deliveredRef = useRef({});
   useEffect(() => {
-    for (const id of Object.keys(agents)) {
-      const a = agents[id];
-      const def = AGENTS.find((x) => x.id === id);
-      if (!def || def.cto) continue;
-      const m = /^(?:receiving brief|picking up):\s*(.+)$/i.exec(a.task || "");
-      if (a.status === "thinking" && m) {
-        const label = m[1];
-        if (deliveredRef.current[id] !== label) {
-          deliveredRef.current[id] = label;
-          jayQueue.current.push({ room: def.room, name: def.name, task: label });
+    for (const id of Object.keys(tasks)) {
+      const t = tasks[id];
+      if (t.status === "in_progress" && t.assignedTo && !deliveredRef.current[id]) {
+        deliveredRef.current[id] = true;
+        const def = AGENTS.find((x) => x.id === t.assignedTo);
+        if (def && !def.cto) {
+          jayQueue.current.push({ room: def.room, name: def.name, task: t.title });
           if (jayQueue.current.length > 6) jayQueue.current = jayQueue.current.slice(-6);
         }
-      } else if (a.status === "working" || a.status === "idle") {
-        deliveredRef.current[id] = null; // reset so the next briefing triggers again
       }
     }
-  }, [agents]);
+  }, [tasks]);
 
   // Full activity history for the open task (every event incl. agent-to-agent
   // communication), fetched from the DB so it isn't capped; refreshes as new
