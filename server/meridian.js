@@ -41,6 +41,15 @@ const ai = SIMULATE ? null : new Anthropic({ baseURL: MERIDIAN_BASE_URL, apiKey:
 const clientFor = () => ai;
 export const usingGemini = !!ai;
 
+// In-flight runs by task id, so a deleted/cancelled task can abort its LLM calls
+// and the agent stops immediately instead of finishing a now-pointless build.
+const aborters = new Map();
+export function cancelWork(taskId) {
+  const ac = aborters.get(taskId);
+  if (ac) { try { ac.abort(); } catch {} return true; }
+  return false;
+}
+
 function isRateLimit(msg) { return /429|rate.?limit|too many requests|overloaded|\b529\b/i.test(String(msg)); }
 // Transient overload/availability blips — retry, don't fail the task.
 const isTransient = (msg) => /\b5(00|02|03|29)\b|overloaded|UNAVAILABLE|high demand|try again later|INTERNAL|backend error|deadline|ECONNRESET|ETIMEDOUT|fetch failed|timed out|socket hang up/i.test(String(msg));
@@ -134,16 +143,17 @@ function noteFallback(fromModel, msg) {
 }
 const canFallback = (model, msg) => !isLight(model) && !!ai && !!GEMINI_FLASH_MODEL && FALLBACKABLE(msg);
 
-async function callModel(system, prompt, { json = false, temperature = 0.7, model, media, maxOutputTokens } = {}) {
+async function callModel(system, prompt, { json = false, temperature = 0.7, model, media, maxOutputTokens, signal } = {}) {
   const mdl = model || GEMINI_MODEL;
   const messages = [{ role: "user", content: userContent(prompt, media) }];
   const MAX_TRIES = 4;
   for (let attempt = 0; attempt < MAX_TRIES; attempt++) {
+    if (signal?.aborted) throw new Error("aborted");
     try {
       // Stream + collect the final message. Streaming lifts the SDK's 10-minute
       // non-streaming cap, so large builds (high max_tokens) don't get rejected.
       const res = await withTimeout(
-        ai.messages.stream({ model: mdl, max_tokens: clampTokens(maxOutputTokens, mdl), system, temperature, messages }).finalMessage(),
+        ai.messages.stream({ model: mdl, max_tokens: clampTokens(maxOutputTokens, mdl), system, temperature, messages }, { signal }).finalMessage(),
         TIMEOUT_MS,
       );
       try { recordUsage(mdl, usageMeta(res)); } catch {}
@@ -151,6 +161,7 @@ async function callModel(system, prompt, { json = false, temperature = 0.7, mode
       return json ? extractJson(text) : text;
     } catch (e) {
       const msg = e?.message || String(e);
+      if (signal?.aborted || /abort/i.test(msg)) throw e; // cancelled — stop now, don't retry
       // Our own timeout must NEVER be retried — retrying at full duration multiplies
       // the wait (a stalled call became ~40 min). Fail it so the task re-queues.
       const timedOut = /timed out/i.test(msg);
@@ -195,12 +206,13 @@ async function generate(system, prompt, opts = {}) {
 
 // Tool-use loop: lets an agent call tools (e.g. http_request to test an API),
 // feeding results back until it produces the final deliverable.
-async function toolLoop(system, prompt, { model, media, tools, toolCtx, maxOutputTokens }) {
+async function toolLoop(system, prompt, { model, media, tools, toolCtx, maxOutputTokens, signal }) {
   const mdl = model || GEMINI_MODEL;
   const max_tokens = clampTokens(maxOutputTokens, mdl);
   const messages = [{ role: "user", content: userContent(prompt, media) }];
   for (let step = 0; step < 8; step++) {
-    const res = await withTimeout(ai.messages.stream({ model: mdl, max_tokens, system, temperature: 0.5, tools, messages }).finalMessage(), TIMEOUT_MS);
+    if (signal?.aborted) throw new Error("aborted");
+    const res = await withTimeout(ai.messages.stream({ model: mdl, max_tokens, system, temperature: 0.5, tools, messages }, { signal }).finalMessage(), TIMEOUT_MS);
     try { recordUsage(mdl, usageMeta(res)); } catch {}
     const toolUses = (res.content || []).filter((b) => b.type === "tool_use");
     if (!toolUses.length) return textOf(res);
@@ -213,7 +225,7 @@ async function toolLoop(system, prompt, { model, media, tools, toolCtx, maxOutpu
     messages.push({ role: "user", content: results });
   }
   messages.push({ role: "user", content: "Wrap up now and produce the final deliverable from what you gathered." });
-  const final = await withTimeout(ai.messages.stream({ model: mdl, max_tokens, system, messages }).finalMessage(), TIMEOUT_MS);
+  const final = await withTimeout(ai.messages.stream({ model: mdl, max_tokens, system, messages }, { signal }).finalMessage(), TIMEOUT_MS);
   try { recordUsage(mdl, usageMeta(final)); } catch {}
   return textOf(final);
 }
@@ -343,7 +355,7 @@ const STACK_GUIDE = {
 
 // Independent QA: SCOUT tests a build it did NOT write (fresh eyes catch what the
 // author misses), reports concrete bugs, then ORBIT fixes them. Covers any stack.
-async function qaTestBuild(build, task, model) {
+async function qaTestBuild(build, task, model, signal) {
   if (!ai || !model || !build) return { clean: true, bugs: [] };
   try {
     const txt = await generate(
@@ -357,7 +369,7 @@ async function qaTestBuild(build, task, model) {
         "- Code that errors or silently does nothing (mismatched selectors/IDs/imports/paths).\n" +
         "Be specific — name the screen/element/function. Respond ONLY as JSON: {\"clean\": boolean, \"bugs\": [\"specific bug to fix\"]} (max 10, most severe first; clean=true ONLY if you genuinely find none).",
       `TASK: ${task.title}\nDETAILS: ${task.prompt}\n\nBUILD TO TEST:\n${String(build).slice(0, 60000)}`,
-      { model, json: true, temperature: 0.2 }
+      { model, json: true, temperature: 0.2, signal }
     );
     const p = JSON.parse(txt);
     const bugs = Array.isArray(p.bugs) ? p.bugs.map((b) => String(b).slice(0, 240)).filter(Boolean).slice(0, 10) : [];
@@ -367,7 +379,7 @@ async function qaTestBuild(build, task, model) {
   }
 }
 
-async function qaAndFixBuild(build, task, model) {
+async function qaAndFixBuild(build, task, model, signal) {
   if (!ai || !model || !build || build.length < 200) return build;
   // On Flash free-tier (Pro out of credits), skip the extra QA round-trips so the
   // build itself completes without exhausting the per-minute quota.
@@ -375,7 +387,7 @@ async function qaAndFixBuild(build, task, model) {
   // Show Scout actively QA-testing (its room scans) for a visible minimum.
   const scoutDone = wakeAgent("scout", `QA-testing ${task.title}`, 6000);
   try { addEvent({ kind: "review", text: `Scout is QA-testing "${task.title}"…`, taskId: task.id, agentId: "scout" }); } catch {}
-  const qa = await qaTestBuild(build, task, model);
+  const qa = await qaTestBuild(build, task, model, signal);
   scoutDone();
   if (qa.clean || !qa.bugs.length) {
     try { addEvent({ kind: "system", text: `Scout QA: "${task.title}" passed — no bugs found.`, taskId: task.id, agentId: "scout" }); } catch {}
@@ -392,7 +404,7 @@ async function qaAndFixBuild(build, task, model) {
       "You are ORBIT. Independent QA (Scout) tested your build and found the bugs below. FIX EVERY ONE and return the COMPLETE corrected project (same \"===== FILE: path =====\" markers, full files) — keep whatever already works, do not shorten the project. " +
         "For any stuck loading/verifying screen, make it AUTO-ADVANCE: add data-next=\"screen-target\" (optional data-delay=\"ms\") to that screen div, or a setTimeout(()=>navigateTo('screen-target'),1800). Ensure every screen has a way forward.\n\nBUGS TO FIX:\n- " + qa.bugs.join("\n- "),
       `TASK: ${task.title}\nDETAILS: ${task.prompt}\n\nYOUR BUILD:\n${String(build).slice(0, 60000)}`,
-      { model, maxOutputTokens: BUILD_MAX_TOKENS, temperature: 0.3 }
+      { model, maxOutputTokens: BUILD_MAX_TOKENS, temperature: 0.3, signal }
     );
     return fixed && fixed.length > build.length * 0.6 ? fixed : build;
   } catch {
@@ -403,7 +415,7 @@ async function qaAndFixBuild(build, task, model) {
 // Quality passes: take the build and iteratively RAISE it to a flagship standard.
 // Each pass keeps what works and deepens it; we only accept a pass that doesn't
 // shrink the result (guards against truncation/regressions).
-async function enhanceBuild(build, task, model, system) {
+async function enhanceBuild(build, task, model, system, signal) {
   if (!ai || !model || !build || BUILD_PASSES <= 1) return build;
   let cur = build;
   for (let i = 1; i < BUILD_PASSES; i++) {
@@ -412,7 +424,7 @@ async function enhanceBuild(build, task, model, system) {
       const better = await generate(
         `${system}\n\nThis is a POLISH pass. Below is the current build. RAISE it to a flagship, production-grade standard — the calibre of a real shipped fintech app (Revolut / Wise / Monzo). KEEP everything that already works, then: (1) complete any MISSING screens of the full flow; (2) make every screen denser and more refined (real components, copy, empty/loading/success states, micro-interactions, spacing & typography); (3) ensure the wallet DASHBOARD shows the balances + card with an eye-toggle that reveals the first group of the card number; (4) smooth every transition/animation. Return the COMPLETE updated file(s) — same "===== FILE: path =====" markers, full code, no "..." and no truncation. Do NOT shorten it.`,
         `TASK: ${task.title}\n\nDETAILS:\n${task.prompt}\n\nCURRENT BUILD:\n${String(cur).slice(0, 120000)}`,
-        { model, maxOutputTokens: BUILD_MAX_TOKENS, temperature: 0.4 }
+        { model, maxOutputTokens: BUILD_MAX_TOKENS, temperature: 0.4, signal }
       );
       if (better && better.length > cur.length * 0.85) cur = better;
     } catch { /* keep current on failure */ }
@@ -420,9 +432,9 @@ async function enhanceBuild(build, task, model, system) {
   return cur;
 }
 // Build finishing: enhance (quality passes) then independent QA.
-async function finishBuild(out, task, model, system) {
-  const enhanced = await enhanceBuild(out, task, model, system);
-  return (await qaAndFixBuild(enhanced, task, model)) || `Done: ${task.title}.`;
+async function finishBuild(out, task, model, system, signal) {
+  const enhanced = await enhanceBuild(out, task, model, system, signal);
+  return (await qaAndFixBuild(enhanced, task, model, signal)) || `Done: ${task.title}.`;
 }
 
 /* Worker performs the task, building on the department's memory.
@@ -483,15 +495,23 @@ export async function runWork(agent, task, memoryText = "", model = null, priorW
   }
   const userPrompt = `TASK: ${task.title}\n\nDETAILS:\n${task.prompt}${memBlock}${priorBlock}${fixBlock}${upstreamBlock}${projectBlock}${fileBlock}`;
 
-  if (tools && toolCtx) {
-    const toolNote = agent.department === "development"
-      ? "\n\nTools: request_help (consult another department), http_request (actually call an API to test it — use {{NAME}} placeholders for secrets), request_credentials (ask the human for sandbox keys). Actually run tests with http_request and report real responses; if you lack a credential, call request_credentials. Use request_help when another department's expertise would improve the result."
-      : "\n\nTool: request_help — consult another department's specialist when their expertise would genuinely improve your deliverable (e.g. ask Observatory to research something, Development to sanity-check code, Security for a risk check). Use it sparingly, then fold their answer into your work.";
-    const out = await generateWithTools(system + toolNote, userPrompt, { model, media, tools, toolCtx, maxOutputTokens: isBuild ? BUILD_MAX_TOKENS : undefined });
-    return (isBuild ? await finishBuild(out, task, model, system) : out) || `Done: ${task.title}.`;
+  // Register an aborter so deleting/cancelling the task stops its LLM calls.
+  const ac = new AbortController();
+  aborters.set(task.id, ac);
+  const signal = ac.signal;
+  try {
+    if (tools && toolCtx) {
+      const toolNote = agent.department === "development"
+        ? "\n\nTools: request_help (consult another department), http_request (actually call an API to test it — use {{NAME}} placeholders for secrets), request_credentials (ask the human for sandbox keys). Actually run tests with http_request and report real responses; if you lack a credential, call request_credentials. Use request_help when another department's expertise would improve the result."
+        : "\n\nTool: request_help — consult another department's specialist when their expertise would genuinely improve your deliverable (e.g. ask Observatory to research something, Development to sanity-check code, Security for a risk check). Use it sparingly, then fold their answer into your work.";
+      const out = await generateWithTools(system + toolNote, userPrompt, { model, media, tools, toolCtx, maxOutputTokens: isBuild ? BUILD_MAX_TOKENS : undefined, signal });
+      return (isBuild ? await finishBuild(out, task, model, system, signal) : out) || `Done: ${task.title}.`;
+    }
+    const out = await generate(system, userPrompt, { model, media, maxOutputTokens: isBuild ? BUILD_MAX_TOKENS : undefined, signal });
+    return (isBuild ? await finishBuild(out, task, model, system, signal) : out) || `Done: ${task.title}.`;
+  } finally {
+    aborters.delete(task.id);
   }
-  const out = await generate(system, userPrompt, { model, media, maxOutputTokens: isBuild ? BUILD_MAX_TOKENS : undefined });
-  return (isBuild ? await finishBuild(out, task, model, system) : out) || `Done: ${task.title}.`;
 }
 
 /* Router: pick the single best department for a task (so "Any" goes to the

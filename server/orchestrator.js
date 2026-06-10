@@ -152,8 +152,19 @@ async function runTask(agent, task) {
     }, 30000) : null;
     try {
       result = await runWork(agent, task, memoryText, workModel, priorWork, media, tools, toolCtx, upstream, build, attachedProjects);
-    } catch (err) { if (beat) clearInterval(beat); handleError(agent, task, err); return; }
+    } catch (err) {
+      if (beat) clearInterval(beat);
+      const msg = (err && err.message) || String(err);
+      // Task was deleted/cancelled mid-run — stop quietly; the agent goes idle
+      // via the finally. No re-queue, no error/issue.
+      if (/abort/i.test(msg) || !getTask(task.id)) {
+        addEvent({ kind: "system", text: `${agent.name} stopped — "${task.title}" was cancelled`, agentId: agent.id });
+        return;
+      }
+      handleError(agent, task, err); return;
+    }
     if (beat) clearInterval(beat);
+    if (!getTask(task.id)) return; // deleted while finishing — drop it, agent idles
     updateTask(task.id, { status: "review", result });
 
     setAgent(agent.id, { status: "thinking", task: `wrapping up: ${task.title}` });

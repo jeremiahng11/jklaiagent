@@ -32,7 +32,7 @@ import { toWordDoc, safeFilename } from "./wordExport.js";
 import { extractFiles, buildZip, extractCodeBlocks, langExt, mimeForExt, baseName, extOf } from "./zipExport.js";
 import { DEPARTMENTS } from "./agents.js";
 import { getAgent } from "./store.js";
-import { usingGemini, embed, getModelHealth } from "./meridian.js";
+import { usingGemini, embed, getModelHealth, cancelWork } from "./meridian.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIST = join(__dirname, "..", "dist");
@@ -377,6 +377,14 @@ app.post("/api/tasks/:id/followup", async (req, reply) => {
 });
 
 app.delete("/api/tasks/:id", (req, reply) => {
+  const t = getTask(req.params.id);
+  // If an agent is actively working this task, abort its run and send it idle so
+  // it visibly stops (instead of finishing a now-deleted build).
+  if (t && t.assignedTo && ["in_progress", "review", "planning"].includes(t.status)) {
+    cancelWork(t.id);
+    try { setAgent(t.assignedTo, { status: "idle", task: "standing by", currentTaskId: null, lastRunAt: Date.now() }); } catch {}
+    addEvent({ kind: "system", text: `Jay Jay: stopped ${getAgent(t.assignedTo)?.name || "the agent"} — "${t.title}" was deleted`, agentId: t.assignedTo });
+  }
   const ok = deleteTask(req.params.id);
   reply.code(ok ? 204 : 404).send();
 });
