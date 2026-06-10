@@ -96,6 +96,33 @@ function userContent(prompt, media) {
 const textOf = (res) => (res?.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n").trim();
 const usageMeta = (res) => ({ promptTokenCount: res?.usage?.input_tokens || 0, candidatesTokenCount: res?.usage?.output_tokens || 0 });
 
+// Stream a message and return the final Message. On TIMEOUT, abort the stream
+// and SALVAGE whatever text was generated so far (a partial build still delivers
+// — no error/retry loop). Re-throws a user cancellation; throws a timeout only
+// when nothing usable was produced.
+let partialNoticeAt = 0;
+async function streamFinal(body, signal) {
+  const stream = ai.messages.stream(body, signal ? { signal } : undefined);
+  let partial = "";
+  try { stream.on("text", (d) => { partial += d; }); } catch {}
+  let timedOut = false;
+  const to = setTimeout(() => { timedOut = true; try { stream.abort(); } catch {} }, TIMEOUT_MS);
+  try {
+    return await stream.finalMessage();
+  } catch (e) {
+    if (signal?.aborted && !timedOut) throw e; // user cancelled — discard partial
+    if (partial.trim().length > 400) {
+      const now = Date.now();
+      if (now - partialNoticeAt > 30000) { partialNoticeAt = now; try { addEvent({ kind: "system", text: "Build hit the time limit — delivering what was generated. Use Follow up to extend it." }); } catch {} }
+      return { content: [{ type: "text", text: partial }], usage: null };
+    }
+    if (timedOut) throw new Error("Meridian request timed out");
+    throw e;
+  } finally {
+    clearTimeout(to);
+  }
+}
+
 // Errors that mean "this tier can't serve the request right now" — rate limit,
 // overload, bad model. For these we fall back from heavy (Sonnet) to light (Haiku).
 const FALLBACKABLE = (msg) =>
@@ -152,12 +179,9 @@ async function callModel(system, prompt, { json = false, temperature = 0.7, mode
   for (let attempt = 0; attempt < MAX_TRIES; attempt++) {
     if (signal?.aborted) throw new Error("aborted");
     try {
-      // Stream + collect the final message. Streaming lifts the SDK's 10-minute
-      // non-streaming cap, so large builds (high max_tokens) don't get rejected.
-      const res = await withTimeout(
-        ai.messages.stream({ model: mdl, max_tokens: clampTokens(maxOutputTokens, mdl), system, temperature, messages }, { signal }).finalMessage(),
-        TIMEOUT_MS,
-      );
+      // Stream + collect the final message. On timeout, salvage the partial
+      // output so a slow build still delivers instead of erroring and retrying.
+      const res = await streamFinal({ model: mdl, max_tokens: clampTokens(maxOutputTokens, mdl), system, temperature, messages }, signal);
       try { recordUsage(mdl, usageMeta(res)); } catch {}
       const text = textOf(res);
       return json ? extractJson(text) : text;
@@ -214,7 +238,7 @@ async function toolLoop(system, prompt, { model, media, tools, toolCtx, maxOutpu
   const messages = [{ role: "user", content: userContent(prompt, media) }];
   for (let step = 0; step < 8; step++) {
     if (signal?.aborted) throw new Error("aborted");
-    const res = await withTimeout(ai.messages.stream({ model: mdl, max_tokens, system, temperature: 0.5, tools, messages }, { signal }).finalMessage(), TIMEOUT_MS);
+    const res = await streamFinal({ model: mdl, max_tokens, system, temperature: 0.5, tools, messages }, signal);
     try { recordUsage(mdl, usageMeta(res)); } catch {}
     const toolUses = (res.content || []).filter((b) => b.type === "tool_use");
     if (!toolUses.length) return textOf(res);
@@ -227,7 +251,7 @@ async function toolLoop(system, prompt, { model, media, tools, toolCtx, maxOutpu
     messages.push({ role: "user", content: results });
   }
   messages.push({ role: "user", content: "Wrap up now and produce the final deliverable from what you gathered." });
-  const final = await withTimeout(ai.messages.stream({ model: mdl, max_tokens, system, messages }, { signal }).finalMessage(), TIMEOUT_MS);
+  const final = await streamFinal({ model: mdl, max_tokens, system, messages }, signal);
   try { recordUsage(mdl, usageMeta(final)); } catch {}
   return textOf(final);
 }
