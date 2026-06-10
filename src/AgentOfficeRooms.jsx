@@ -276,7 +276,7 @@ const Room = memo(function Room({ room, name, color, cto, status, task, departme
       <div className="room-top"><span className="room-name">{roomLabel(room)}</span><span className="room-dots"><i /><i /><i /></span></div>
       <div className="scene" style={{ height: h }}>
         <svg className="room-art" viewBox="0 0 260 150" preserveAspectRatio="none"><RoomArt room={room} color={color} work={busy} /></svg>
-        <div className={`walker ${!cto && !ctoAway && status === "working" ? (department === "development" ? "coding" : "atwork") : (busy && !ctoAway && !cto ? "busy " + walk : "")}`}>
+        <div className={`walker ${!cto && !ctoAway && status === "working" ? (department === "development" ? "coding" : (walk === "busyB" ? "paceB" : "paceA")) : (busy && !ctoAway && !cto ? "busy " + walk : "")}`}>
           {/* bubbles sit just above the agent and move with it */}
           {!cto && sayText && <div className="speech" style={{ borderColor: color, color }}>{sayText}</div>}
           {!cto && !sayText && status === "working" && <div className="work-bubble" style={{ color, borderColor: color }}>{(WORK_INFO[department] || WORK_INFO._)[0]} {(WORK_INFO[department] || WORK_INFO._)[1]}<span className="work-dots">…</span></div>}
@@ -602,7 +602,13 @@ export default function AgentOffice() {
   const [form, setForm] = useState({ title: "", department: "", details: "", plan: false, priority: "normal" });
   const [selected, setSelected] = useState(null);
   const [doc, setDoc] = useState(null);
-  const [say, setSay] = useState(null);
+  const [say, setSay] = useState([]); // [{room, text}] — several agents can talk at once
+  const sayTimers = useRef({});
+  const talk = useCallback((room, text, ms = 2400) => {
+    setSay((arr) => [...arr.filter((s) => s.room !== room), { room, text }]);
+    clearTimeout(sayTimers.current[room]);
+    sayTimers.current[room] = setTimeout(() => setSay((arr) => arr.filter((s) => s.room !== room)), ms);
+  }, []);
   const [jay, setJay] = useState({ coords: null, facing: "right", say: null });
   const [taskFilter, setTaskFilter] = useState("all");
   const [idleDismissed, setIdleDismissed] = useState(false);
@@ -692,10 +698,9 @@ export default function AgentOffice() {
       const c = spot(item.room, 0.4 + Math.random() * 0.2, 0.62 + Math.random() * 0.14);
       if (!c) { T.push(setTimeout(jayStep, 1200)); return; }
       const dur = goTo(c, `→ ${item.name}: ${item.task}`);
-      setSay({ room: item.room, text: "on it!" });
+      talk(item.room, "on it!", 2200);
       T.push(setTimeout(() => {
         setJay((j) => ({ ...j, say: null }));
-        setSay((s) => (s && s.room === item.room ? null : s));
         const home = spot("COMMAND HQ", 0.35 + Math.random() * 0.3, 0.62 + Math.random() * 0.14);
         if (home) goTo(home);
         T.push(setTimeout(jayStep, 1600));
@@ -790,16 +795,23 @@ export default function AgentOffice() {
         const afterColon = (e.text.split(/:\s/).slice(1).join(": ") || "").trim();
         let msg = label === "asks" ? afterColon : label === "bugs" ? (afterColon.split(/;|·/)[0] || "").trim() : "";
         if (msg) msg = msg.replace(/…$/, "").slice(0, 30);
-        setCommFx((p) => [...p.filter((x) => x.id !== id), { id, from, to, label, msg }].slice(-4));
+        const RN = { OBSERVATORY: "Scout", WORKSHOP: "Orbit", "RESEARCH LAB": "Scribe", SECURITY: "Warden", ARCHIVE: "Vault", "COMMAND HQ": "Jay Jay" };
+        // Forward beam: sender → receiver, envelope carrying the message.
+        setCommFx((p) => [...p.filter((x) => x.id !== id), { id, from, to, label, msg }].slice(-5));
         setTimeout(() => setCommFx((p) => p.filter((x) => x.id !== id)), 4500);
-        // The receiving agent acknowledges the message shortly after it lands.
-        const ack = label === "asks" ? "got it! 👍" : label === "bugs" ? "on it!" : label === "QA" ? "checking…" : null;
-        const ackRoom = label === "QA" ? from : to; // QA: Scout acknowledges; else the receiver
-        if (ack) {
+        // Two-way chatter: sender announces, receiver replies when the envelope
+        // lands, then (for a consult) sends an answer back along a RETURN beam.
+        talk(from, label === "asks" ? `→ ${RN[to] || "team"}` : label === "bugs" ? "found issues" : "QA…", 2600);
+        const reply = label === "asks" ? "on it 👍" : label === "bugs" ? "on it!" : "checking…";
+        setTimeout(() => talk(to, reply, 2400), 1300);
+        if (label === "asks") {
           setTimeout(() => {
-            setSay({ room: ackRoom, text: ack });
-            setTimeout(() => setSay((s) => (s && s.text === ack ? null : s)), 2400);
-          }, 400);
+            const rid = id + "r";
+            talk(to, "sending…", 1600);
+            setCommFx((p) => [...p.filter((x) => x.id !== rid), { id: rid, from: to, to: from, label: "replies", msg: "here you go" }].slice(-5));
+            setTimeout(() => setCommFx((p) => p.filter((x) => x.id !== rid)), 3800);
+            setTimeout(() => talk(from, "thanks! 🙌", 2200), 1300);
+          }, 2400);
         }
       }
     }
@@ -851,7 +863,7 @@ export default function AgentOffice() {
     doneEvtRef.current = maxId;
     if (fresh) {
       const ag = AGENTS.find((a) => a.id === fresh.agentId);
-      if (ag && !ag.cto) { setSay({ room: ag.room, text: "done! ✓" }); const id = setTimeout(() => setSay((s) => (s && s.text === "done! ✓" ? null : s)), 2200); return () => clearTimeout(id); }
+      if (ag && !ag.cto) { talk(ag.room, "done! ✓", 2200); }
     }
   }, [events]);
 
@@ -1001,7 +1013,7 @@ export default function AgentOffice() {
                 return (
                   <Room key={room} room={room} name={a.name} color={a.color} cto={!!a.cto} status={a.status} task={a.task}
                     department={a.department} cls={m.cls} h={m.h} walk={m.walk}
-                    sayText={say?.room === room ? say.text : null} ctoAway={!!a.cto} onPick={onPick} />
+                    sayText={say.find((s) => s.room === room)?.text || null} ctoAway={!!a.cto} onPick={onPick} />
                 );
               })}
               {jay.coords && (
@@ -1715,6 +1727,10 @@ const CSS = `
 @keyframes shadowPulse { 0%,100%{opacity:.26; width:34px;} 50%{opacity:.5; width:42px;} }
 /* working agent: stays at the workstation with a focused typing lean */
 .walker.atwork { animation:typeLean .85s ease-in-out infinite; }
+/* non-dev workers pace left↔right across their room while working (lean + stroll) */
+.walker.paceA { animation:typeLean .85s ease-in-out infinite, busyA 9s ease-in-out infinite; }
+.walker.paceB { animation:typeLean .85s ease-in-out infinite, busyB 9.4s ease-in-out infinite; }
+.walker.paceA .oshadow, .walker.paceB .oshadow { animation:shadowPulse 1.3s ease-in-out infinite; }
 @keyframes typeLean { 0%,100%{transform:translateX(-50%) translateY(0) rotate(0deg);} 30%{transform:translateX(-50%) translateY(1px) rotate(.8deg);} 70%{transform:translateX(-50%) translateY(-1px) rotate(-.8deg);} }
 /* Orbit coding: moves between the keyboard and the screens, busily */
 .walker.coding { animation:codeMove 3.4s cubic-bezier(.45,.05,.3,1) infinite; }
