@@ -694,17 +694,27 @@ export default function AgentOffice() {
     const T = jayTimers.current;
     const item = jayQueue.current.shift();
     if (item) {
-      // Task ready: leave HQ, walk to the agent's room, announce it, return.
-      const c = spot(item.room, 0.4 + Math.random() * 0.2, 0.62 + Math.random() * 0.14);
+      // Task ready: leave HQ, stroll over and stand beside the agent for a quick
+      // face-to-face briefing (both bubble back and forth), then walk back.
+      const c = spot(item.room, 0.52, 0.6); // beside the agent
       if (!c) { T.push(setTimeout(jayStep, 1200)); return; }
-      const dur = goTo(c, `→ ${item.name}: ${item.task}`);
-      talk(item.room, "on it!", 2200);
+      const dur = goTo(c, `→ ${item.name}`);
+      const t0 = dur * 1000 + 450;
+      const beats = [
+        () => setJay((j) => ({ ...j, say: `here's the brief 📋` })),
+        () => talk(item.room, "got it 👍", 2200),
+        () => setJay((j) => ({ ...j, say: `${String(item.task).slice(0, 24)}…` })),
+        () => talk(item.room, "on it! 💪", 2400),
+        () => setJay((j) => ({ ...j, say: "ship it 🚀" })),
+      ];
+      beats.forEach((fn, i) => T.push(setTimeout(fn, t0 + i * 1250)));
+      // Discussion done — Jay strolls back to HQ and continues.
       T.push(setTimeout(() => {
         setJay((j) => ({ ...j, say: null }));
         const home = spot("COMMAND HQ", 0.35 + Math.random() * 0.3, 0.62 + Math.random() * 0.14);
         if (home) goTo(home);
         T.push(setTimeout(jayStep, 1600));
-      }, dur * 1000 + 1700));
+      }, t0 + beats.length * 1250 + 500));
     } else if (Math.random() > 0.28) {
       // Pace around HQ: a fresh spot (varied x and y), then a pause.
       const c = spot("COMMAND HQ", 0.15 + Math.random() * 0.7, 0.6 + Math.random() * 0.2);
