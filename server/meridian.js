@@ -45,17 +45,22 @@ function isRateLimit(msg) { return /429|rate.?limit|too many requests|overloaded
 // Transient overload/availability blips — retry, don't fail the task.
 const isTransient = (msg) => /\b5(00|02|03|29)\b|overloaded|UNAVAILABLE|high demand|try again later|INTERNAL|backend error|deadline|ECONNRESET|ETIMEDOUT|fetch failed|timed out|socket hang up/i.test(String(msg));
 
-// Generous so big builds / follow-ups don't time out; still bounded so a hung
-// call can't freeze an agent forever. Override with LLM_TIMEOUT_MS.
-// Enough for one full Balanced build to finish in a SINGLE attempt (timeouts are
-// not retried). A genuine stall surfaces a clear failure here instead of hanging
-// for 30+ min. Override with LLM_TIMEOUT_MS.
-const TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS || process.env.GEMINI_TIMEOUT_MS || 720000);
+// A build must finish within this window in ONE attempt (timeouts aren't retried).
+// 15 min gives a big build room on a slow endpoint; a genuine stall still fails
+// here instead of hanging forever. Override with LLM_TIMEOUT_MS.
+const TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS || process.env.GEMINI_TIMEOUT_MS || 900000);
 const withTimeout = (p, ms = TIMEOUT_MS) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("Meridian request timed out")), ms))]);
+// Assumed generation throughput (tokens/sec), used to size requests so we never
+// ask for more than can be produced before the timeout. Lower it if builds still
+// time out (your endpoint is slower); raise it if it's fast. Override LLM_EST_TPS.
+const EST_TPS = Number(process.env.LLM_EST_TPS || 22);
 
-// Cap output tokens per tier so a request can't exceed the model's limit.
+// Cap output tokens per tier (model limit) AND to what can be generated within
+// the timeout (so a big request can't time out and loop). Sized from EST_TPS.
 function clampTokens(req, model) {
-  const cap = isLight(model) ? 8000 : 32000;
+  const hard = isLight(model) ? 8000 : 32000;
+  const fit = Math.floor((TIMEOUT_MS / 1000) * EST_TPS * 0.8); // leave 20% headroom
+  const cap = Math.min(hard, Math.max(2000, fit));
   return Math.max(512, Math.min(req || 4096, cap));
 }
 // Pull JSON out of a reply (Claude may wrap it in prose or ``` fences).
