@@ -56,7 +56,19 @@ let eventSeq = 1;
 let pool = null;
 
 function needsSsl(url) {
-  return /localhost|127\.0\.0\.1/.test(url) ? false : { rejectUnauthorized: false };
+  // Explicit overrides win.
+  if (process.env.DB_SSL === "false") return false;
+  if (process.env.DB_SSL === "true") return { rejectUnauthorized: false };
+  if (/sslmode=disable/i.test(url)) return false;
+  if (/sslmode=(require|verify)/i.test(url)) return { rejectUnauthorized: false };
+  try {
+    const h = new URL(url).hostname;
+    // Local + private ranges, and single-label Docker/Coolify service hostnames
+    // (e.g. "postgresql-missiondb") are internal — no SSL. Public hosts use SSL.
+    if (/^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|::1)/.test(h)) return false;
+    if (!h.includes(".")) return false;
+  } catch { /* fall through */ }
+  return { rejectUnauthorized: false };
 }
 
 function timeAgo(ms) {
