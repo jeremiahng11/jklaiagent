@@ -265,6 +265,19 @@ export async function initStore() {
     for (const ev of ["task", "tasksReset", "document", "memory", "routine", "stats"]) bus.on(ev, scheduleSave);
     scheduleSave(); // write an initial mirror
   }
+  // A redeploy/crash leaves in-flight tasks stuck (in_progress/review/planning)
+  // with nothing actually running them. Re-queue them so the orchestrator picks
+  // them up again and continues (keeping any partial result as prior work).
+  let resumed = 0;
+  for (const t of state.tasks.values()) {
+    if (["in_progress", "review", "planning"].includes(t.status)) {
+      t.status = "queued"; t.startedAt = null; t.attempts = 0; t.reviewNotes = "resumed after restart";
+      if (t.result && !t.priorWork) t.priorWork = t.result;
+      if (pool) persistTask(t);
+      resumed++;
+    }
+  }
+  if (resumed) { scheduleSave(); console.log(`[store] re-queued ${resumed} interrupted task(s) after restart`); }
   const mode = pool ? "postgres" : fileEnabled ? "file" : "in-memory";
   console.log(`[store] ready (${mode}${pool && fileEnabled ? " + file backup" : ""})${fileEnabled ? " " + STATE_FILE : ""}`);
 }
