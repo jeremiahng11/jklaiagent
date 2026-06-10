@@ -55,14 +55,16 @@ function isRateLimit(msg) { return /429|rate.?limit|too many requests|overloaded
 const isTransient = (msg) => /\b5(00|02|03|29)\b|overloaded|UNAVAILABLE|high demand|try again later|INTERNAL|backend error|deadline|ECONNRESET|ETIMEDOUT|fetch failed|timed out|socket hang up/i.test(String(msg));
 
 // A build must finish within this window in ONE attempt (timeouts aren't retried).
-// 15 min gives a big build room on a slow endpoint; a genuine stall still fails
-// here instead of hanging forever. Override with LLM_TIMEOUT_MS.
-const TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS || process.env.GEMINI_TIMEOUT_MS || 900000);
+// This is effectively the SPEED DIAL: builds are auto-sized (EST_TPS) to fit it,
+// so a shorter window = smaller, faster build that still completes; a longer one
+// = bigger, slower build. 10 min ≈ a ~7-8k build in ~6 min. Override LLM_TIMEOUT_MS.
+const TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS || process.env.GEMINI_TIMEOUT_MS || 600000);
 const withTimeout = (p, ms = TIMEOUT_MS) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("Meridian request timed out")), ms))]);
-// Assumed generation throughput (tokens/sec), used to size requests so we never
-// ask for more than can be produced before the timeout. Lower it if builds still
-// time out (your endpoint is slower); raise it if it's fast. Override LLM_EST_TPS.
-const EST_TPS = Number(process.env.LLM_EST_TPS || 22);
+// Assumed generation throughput (tokens/sec), used to size requests so a build
+// reliably finishes before the timeout. Conservative on purpose (Max-plan
+// endpoints are slow); the fit-cap shrinks oversized builds so they COMPLETE
+// rather than time out. Raise LLM_EST_TPS if your endpoint is fast.
+const EST_TPS = Number(process.env.LLM_EST_TPS || 16);
 
 // Cap output tokens per tier (model limit) AND to what can be generated within
 // the timeout (so a big request can't time out and loop). Sized from EST_TPS.
