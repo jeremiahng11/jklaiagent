@@ -731,29 +731,45 @@ export default function AgentOffice() {
   // Start/stop the patrol loop with the Visual view.
   useEffect(() => {
     if (view !== "visual") return;
-    const start = setTimeout(() => {
+    let started = false;
+    const tryStart = () => {
+      if (started) return;
       const home = spot("COMMAND HQ", 0.5, 0.66);
-      if (home) { jayPosRef.current = home; setJay((j) => (j.coords ? j : { coords: home, facing: "right", say: null, dur: 0.2 })); }
+      // Office not laid out / measurable yet — retry until it is, so Jay Jay
+      // always appears and the patrol loop actually runs.
+      if (!home) { jayTimers.current.push(setTimeout(tryStart, 400)); return; }
+      started = true;
+      jayPosRef.current = home;
+      setJay((j) => (j.coords ? j : { coords: home, facing: "right", say: null, dur: 0.2 }));
       jayStep();
-    }, 200);
+    };
+    const start = setTimeout(tryStart, 200);
     return () => { clearTimeout(start); jayTimers.current.forEach(clearTimeout); jayTimers.current = []; };
   }, [view]);
 
-  // Queue deliveries from assign events; the patrol loop picks them up.
+  // Drive Jay Jay's delivery off the agent ENTERING its briefing state (which is
+  // in every snapshot/poll), not a one-off assign event a flaky socket can miss.
+  // The agent holds "receiving brief"/"picking up" for a few seconds, so the
+  // patrol loop reliably walks Jay Jay over to hand off the task.
+  const deliveredRef = useRef({});
   useEffect(() => {
-    if (!events.length) return;
-    const maxId = Math.max(...events.map((e) => e.id));
-    if (lastEvtRef.current === 0) { lastEvtRef.current = maxId; return; }
-    const fresh = events.filter((e) => e.id > lastEvtRef.current && e.kind === "assign" && e.agentId);
-    lastEvtRef.current = maxId;
-    for (const e of fresh.reverse()) {
-      const ag = AGENTS.find((x) => x.id === e.agentId);
-      if (!ag || ag.cto) continue;
-      const task = e.text.includes(": ") ? e.text.split(": ").slice(1).join(": ") : "";
-      jayQueue.current.push({ room: ag.room, name: ag.name, task });
+    for (const id of Object.keys(agents)) {
+      const a = agents[id];
+      const def = AGENTS.find((x) => x.id === id);
+      if (!def || def.cto) continue;
+      const m = /^(?:receiving brief|picking up):\s*(.+)$/i.exec(a.task || "");
+      if (a.status === "thinking" && m) {
+        const label = m[1];
+        if (deliveredRef.current[id] !== label) {
+          deliveredRef.current[id] = label;
+          jayQueue.current.push({ room: def.room, name: def.name, task: label });
+          if (jayQueue.current.length > 6) jayQueue.current = jayQueue.current.slice(-6);
+        }
+      } else if (a.status === "working" || a.status === "idle") {
+        deliveredRef.current[id] = null; // reset so the next briefing triggers again
+      }
     }
-    if (jayQueue.current.length > 5) jayQueue.current = jayQueue.current.slice(-5);
-  }, [events]);
+  }, [agents]);
 
   // Full activity history for the open task (every event incl. agent-to-agent
   // communication), fetched from the DB so it isn't capped; refreshes as new
