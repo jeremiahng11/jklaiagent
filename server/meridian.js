@@ -300,9 +300,10 @@ const DESIGN_BAR =
   "- REALISTIC CARD: gradient background; a gold EMV chip drawn as a small rounded rect with 3-4 thin contact lines (NOT a plain block); a contactless/wifi glyph; the card number as masked dots grouped in 4s ending with 4 real digits; CARD HOLDER name; EXPIRES mm/yy; and the network mark rendered as CLEAN STYLED TEXT — e.g. a bold italic 'VISA' in a sans-serif with letter-spacing — do NOT hand-draw the Visa/Mastercard logo as a complex SVG (it comes out garbled and overlapping). Card aspect ratio ~1.586:1.\n" +
   "- COMPLETE FLOW: build EVERY screen the task implies, in full, with real working navigation between them — do NOT stop after the home/dashboard screen. If the task lists steps (welcome → sign-up/OTP → KYC identity verification → account & currency (SGD/USD) setup → card application → CARD ACTIVATION (show the card + an Activate action + success animation) → set PIN → WALLET DASHBOARD → top-up), implement EACH as its own screen. Never skip the activation, success, or dashboard screens. No broken image links — inline SVG, CSS gradients, or emoji only.\n" +
   "- WALLET DASHBOARD (the destination after onboarding): show the multi-currency balances and the Visa card, recent transactions, and quick actions (top-up, send). Put an EYE toggle on the card that reveals/masks the card number — when tapped it reveals the FIRST group of digits (e.g. 4921 •••• •••• 3087) and hides them again on a second tap. Animate the reveal.";
-// Balanced default: ~18k-token builds stream noticeably faster while still
-// producing a rich multi-screen result. Bump to 32000+ for max-quality builds.
-const BUILD_MAX_TOKENS = Number(process.env.BUILD_MAX_TOKENS || 18000);
+// Default sized to COMPLETE reliably in one shot (~4-6 min). Bigger caps produce
+// richer builds but can exceed the request timeout on slower endpoints and never
+// finish — raise only if your endpoint is fast, and prefer iterating via Follow-up.
+const BUILD_MAX_TOKENS = Number(process.env.BUILD_MAX_TOKENS || 14000);
 // Balanced: keep Scout's single QA pass but skip the costly Orbit fix-rebuild.
 // Set BUILD_QA_FIX=true to also auto-fix flagged issues (slower, max quality).
 const BUILD_QA_FIX = process.env.BUILD_QA_FIX === "true";
