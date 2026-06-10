@@ -16,6 +16,9 @@ import { TICK_MS, AUTONOMOUS_DEFAULT, GEMINI_MODEL, GEMINI_DEMO_MODEL, GEMINI_FL
 
 const MAX_ATTEMPTS = 2;
 const GEN_COOLDOWN_MS = 9000; // calmer autonomous cadence when AUTO is on
+// How long the agent waits "receiving brief" while Jay Jay walks over and hands
+// off the task in the office, before it starts working. Tunable via env.
+const DELIVERY_PAUSE_MS = Number(process.env.DELIVERY_PAUSE_MS || 6000);
 
 const settings = { paused: false, autonomous: AUTONOMOUS_DEFAULT };
 const busy = new Set(); // agent ids currently running a task
@@ -69,9 +72,12 @@ async function runTask(agent, task) {
   busy.add(agent.id);
   try {
     updateTask(task.id, { status: "in_progress", assignedTo: agent.id, startedAt: Date.now() });
-    setAgent(agent.id, { status: "thinking", task: `picking up: ${task.title}`, currentTaskId: task.id });
+    setAgent(agent.id, { status: "thinking", task: `receiving brief: ${task.title}` });
     addEvent({ kind: "assign", text: `Jay Jay → ${agent.name}: ${task.title}`, agentId: agent.id, taskId: task.id });
-    await wait(800 + Math.random() * 700);
+    // Hold the agent in "receiving brief" while Jay Jay walks over and hands off
+    // the task in the office (the delivery animation), BEFORE it starts working.
+    await wait(DELIVERY_PAUSE_MS);
+    setAgent(agent.id, { status: "thinking", task: `picking up: ${task.title}`, currentTaskId: task.id });
 
     // Real work (your tasks + scheduled routines) runs on GEMINI_MODEL and
     // produces docs/memory. Only the AUTO demo (createdBy 'cto') is simulated
