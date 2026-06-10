@@ -780,7 +780,7 @@ export default function AgentOffice() {
         if (m) { from = NAME_ROOM[m[1].trim().toUpperCase()]; to = NAME_ROOM[m[2].trim().toUpperCase()]; label = "asks"; }
       } else if (e.agentId === "scout" && /QA-test/i.test(e.text)) {
         from = "OBSERVATORY"; to = "WORKSHOP"; label = "QA";
-      } else if (/Scout's QA found/i.test(e.text)) {
+      } else if (/Scout's QA (found|noted)/i.test(e.text)) {
         from = "OBSERVATORY"; to = "WORKSHOP"; label = "bugs";
       }
       if (from && to && from !== to) {
@@ -797,6 +797,23 @@ export default function AgentOffice() {
           }, 400);
         }
       }
+    }
+  }, [events]);
+
+  // Jay Jay shows a "reviewing…" bubble when a worker submits a deliverable to him.
+  const [jayReview, setJayReview] = useState(null);
+  const reviewEvtRef = useRef(0);
+  useEffect(() => {
+    const revs = events.filter((e) => e.kind === "review" && e.agentId && e.agentId !== "scout" && e.agentId !== "scribe");
+    if (!revs.length) return;
+    const maxId = Math.max(...revs.map((e) => e.id));
+    if (reviewEvtRef.current === 0) { reviewEvtRef.current = maxId; return; } // skip history
+    const fresh = revs.find((e) => e.id > reviewEvtRef.current);
+    reviewEvtRef.current = maxId;
+    if (fresh) {
+      setJayReview(/assembl/i.test(fresh.text) ? "🧩 assembling…" : "🔍 reviewing…");
+      const id = setTimeout(() => setJayReview(null), 3800);
+      return () => clearTimeout(id);
     }
   }, [events]);
 
@@ -984,7 +1001,7 @@ export default function AgentOffice() {
               })}
               {jay.coords && (
                 <div className="courier" style={{ left: jay.coords.x - 38, top: jay.coords.y - 58, transition: `left ${jay.dur || 1.2}s ease-in-out, top ${jay.dur || 1.2}s ease-in-out, opacity .3s ease` }}>
-                  {(jay.say || jayBubble) && <div className={`courier-say${!jay.say && jayBubble ? " thinking" : ""}`}>{jay.say || jayBubble}</div>}
+                  {(jay.say || jayReview || jayBubble) && <div className={`courier-say${!jay.say && (jayReview || jayBubble) ? " thinking" : ""}`}>{jay.say || jayReview || jayBubble}</div>}
                   <div className="oshadow courier-shadow" />
                   <span className="jay-bob"><Octo color="#facc15" size={76} status="working" cto flip={jay.facing === "left"} /></span>
                 </div>
