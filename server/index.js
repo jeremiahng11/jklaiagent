@@ -310,11 +310,16 @@ app.post("/api/tasks/:id/retry", async (req, reply) => {
   const t = getTask(req.params.id);
   if (!t) return reply.code(404).send({ error: "not found" });
   if (t.status === "done") return reply.code(400).send({ error: "task is done — use Follow up to extend it" });
-  // Keep the partial result so the agent continues from it. Also resume if the
-  // office was clocked out, log it, and kick a dispatch so it picks up now. Free
-  // an agent left stuck on it (e.g. the run was interrupted by the outage).
+  // If an agent is actively building this right now, don't disrupt it — that
+  // would re-queue a running task and cause a duplicate build. Just let it finish.
+  const ag = t.assignedTo ? getAgent(t.assignedTo) : null;
+  if (t.status === "in_progress" && ag && ag.currentTaskId === t.id && ["working", "thinking"].includes(ag.status)) {
+    return reply.send({ ok: true, alreadyRunning: true });
+  }
+  // Keep the partial result so the agent continues from it. Resume if the office
+  // was clocked out, and free an agent left stuck on it (e.g. interrupted run).
   if (getSettings().paused) setSetting("paused", false);
-  if (t.assignedTo && ["working", "thinking"].includes(t.status)) { try { setAgent(t.assignedTo, { status: "idle", task: "standing by", lastRunAt: Date.now() }); } catch {} }
+  if (ag && ag.currentTaskId === t.id) { try { setAgent(t.assignedTo, { status: "idle", task: "standing by", currentTaskId: null, lastRunAt: Date.now() }); } catch {} }
   updateTask(t.id, { status: "queued", attempts: 0, startedAt: null, completedAt: null, reviewNotes: "continuing from previous attempt" });
   addEvent({ kind: "system", text: `Jay Jay re-dispatching: ${t.title}`, taskId: t.id });
   await dispatchNow();

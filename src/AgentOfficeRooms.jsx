@@ -1427,7 +1427,7 @@ export default function AgentOffice() {
               </>
             )}
             <div style={SS.modalActions}>
-              {["failed", "blocked", "in_progress", "review", "planning"].includes(selectedTask.status) && <button style={SS.continueBtn} onClick={() => retryTask(selectedTask.id).then(() => alert("Jay Jay is re-dispatching this task — watch the Visual office.")).catch((e) => alert("Couldn't continue: " + e.message + (/not found/i.test(e.message) ? " (the task no longer exists — re-assign it fresh)" : "")))}><RotateCw size={13} /> CONTINUE TASK</button>}
+              {["failed", "blocked", "in_progress", "review", "planning"].includes(selectedTask.status) && <button style={SS.continueBtn} onClick={() => retryTask(selectedTask.id).then((r) => alert(r && r.alreadyRunning ? "This task is already being built right now — just let it finish (watch the Visual office)." : "Jay Jay is re-dispatching this task — watch the Visual office.")).catch((e) => alert("Couldn't continue: " + e.message + (/not found/i.test(e.message) ? " (the task no longer exists — re-assign it fresh)" : "")))}><RotateCw size={13} /> CONTINUE TASK</button>}
               {(() => {
                 const td = documents.find((d) => d.taskId === selectedTask.id);
                 if (!td) return null;
