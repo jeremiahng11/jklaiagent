@@ -31,6 +31,11 @@ COPY --chown=node:node --from=build /app/.models ./.models
 COPY --chown=node:node server ./server
 COPY --chown=node:node package.json ./
 
+# The Claude Agent SDK / CLI needs a writable HOME for its config/session, even
+# when authenticating via CLAUDE_CODE_OAUTH_TOKEN. The runtime user is `node`.
+ENV HOME=/home/node
+RUN mkdir -p /home/node/.claude /home/node/.config && chown -R node:node /home/node
+
 USER node
 EXPOSE 3000
 
