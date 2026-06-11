@@ -61,7 +61,7 @@ const isTransient = (msg) => /\b5(00|02|03|29)\b|overloaded|UNAVAILABLE|high dem
 // This is effectively the SPEED DIAL: builds are auto-sized (EST_TPS) to fit it,
 // so a shorter window = smaller, faster build that still completes; a longer one
 // = bigger, slower build. 10 min ≈ a ~7-8k build in ~6 min. Override LLM_TIMEOUT_MS.
-const TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS || process.env.GEMINI_TIMEOUT_MS || 600000);
+const TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS || process.env.GEMINI_TIMEOUT_MS || 1200000);
 const withTimeout = (p, ms = TIMEOUT_MS) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("Meridian request timed out")), ms))]);
 // Assumed generation throughput (tokens/sec), used to size requests so a build
 // reliably finishes before the timeout. Conservative on purpose (Max-plan
@@ -142,9 +142,12 @@ async function streamFinal(body, signal) {
     for await (const m of q) {
       if (m.type === "stream_event") {
         const ev = m.event;
-        if (ev?.type === "content_block_delta" && ev.delta?.type === "text_delta") partial += ev.delta.text || "";
-      } else if (m.type === "assistant" && !partial) {
-        finalText = (m.message?.content || []).filter((b) => b?.type === "text").map((b) => b.text).join("");
+        if (ev?.type === "content_block_delta" && ev.delta?.type === "text_delta" && ev.delta.text) partial += ev.delta.text;
+      } else if (m.type === "assistant") {
+        // A (possibly incremental) assistant snapshot — keep the fullest one so a
+        // timeout salvage has content even if delta events aren't emitted.
+        const t = (m.message?.content || []).filter((b) => b?.type === "text").map((b) => b.text).join("");
+        if (t.length > partial.length) partial = t;
       } else if (m.type === "result") {
         if (m.subtype === "success" && typeof m.result === "string" && m.result.trim()) finalText = m.result;
         usage = m.usage || usage;
