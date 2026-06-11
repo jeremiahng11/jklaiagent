@@ -194,6 +194,20 @@ export function getModelHealth() {
   };
 }
 function emitModels() { try { bus.emit("models", getModelHealth()); } catch {} }
+
+// Lightweight reachability probe — the orchestrator uses it to auto-resume the
+// office after an LLM outage (bad token, rate limit, connection). Returns true
+// if a tiny call succeeds within ~30s.
+export async function pingModel() {
+  if (!ai) return true; // simulation — never "down"
+  try {
+    await Promise.race([
+      callModel("You are a health check.", "Reply with the single word: OK", { model: GEMINI_FLASH_MODEL }),
+      new Promise((_, rej) => setTimeout(() => rej(new Error("ping timeout")), 30000)),
+    ]);
+    return true;
+  } catch { return false; }
+}
 function markProDown() {
   if (isProDown()) return;
   proDownUntil = Date.now() + 10 * 60 * 1000; // 10 min

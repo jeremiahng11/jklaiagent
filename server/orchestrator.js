@@ -8,7 +8,7 @@ import {
   upsertDocument, recallMemory, appendMemory, addMemoryNote, createIssue, getAttachments, getTaskCredentials, deleteIssuesForTask,
   recordOutcome, getStats,
 } from "./store.js";
-import { runWork, runReview, generateTask, summarizeForMemory, planTask, synthesize, embed, consultAgent, classifyDepartment, recommendStack, suggestImprovements } from "./meridian.js";
+import { runWork, runReview, generateTask, summarizeForMemory, planTask, synthesize, embed, consultAgent, classifyDepartment, recommendStack, suggestImprovements, pingModel } from "./meridian.js";
 import { toolsFor } from "./tools.js";
 import { extractZipText, isZip } from "./zipExport.js";
 import { DEPARTMENTS } from "./agents.js";
@@ -21,6 +21,13 @@ const GEN_COOLDOWN_MS = 9000; // calmer autonomous cadence when AUTO is on
 const DELIVERY_PAUSE_MS = Number(process.env.DELIVERY_PAUSE_MS || 6000);
 
 const settings = { paused: false, autonomous: AUTONOMOUS_DEFAULT };
+// Auto-resume: when the office is paused by an LLM outage (bad token / rate limit
+// / connection), a probe periodically checks the model and resumes on its own —
+// no manual ALL HANDS. A user pause (CLOCK OUT) is left alone.
+let pausedByLLM = false;
+let autonomousBeforePause = null;
+let recoveryTimer = null;
+const PROBE_MS = 45000;
 const busy = new Set(); // agent ids currently running a task
 const generating = new Set(); // departments mid-generation
 const lastGen = new Map(); // department -> ts
@@ -256,16 +263,15 @@ function handleError(agent, task, err) {
       : "Check that Meridian is reachable at MERIDIAN_BASE_URL and is signed in to your Claude Code session.";
     createIssue({ kind: c.kind, title, detail: `${hint}\n\n${c.msg.slice(0, 400)}`, taskId: task.id, agentId: agent.id });
     addEvent({ kind: "issue", text: `⚠️ ${c.kind} issue — ${agent.name} blocked on "${task.title}"`, agentId: agent.id, taskId: task.id });
-    // Stop the office so queued tasks don't keep failing and spawning new
-    // issues. The user fixes the cause (billing/model), then presses ALL HANDS.
+    // Pause so queued tasks don't keep failing — but auto-resume once the model
+    // is reachable again (probe), so a transient blip doesn't strand the queue.
+    const firstPause = !settings.paused;
+    if (firstPause) { autonomousBeforePause = settings.autonomous; settings.paused = true; }
     settings.autonomous = false;
-    if (!settings.paused) {
-      settings.paused = true;
-      bus.emit("settings", getSettings());
-      addEvent({ kind: "system", text: `Jay Jay paused the office — resolve the ${c.kind} (Meridian / model), then press ALL HANDS` });
-    } else {
-      bus.emit("settings", getSettings());
-    }
+    pausedByLLM = true;
+    bus.emit("settings", getSettings());
+    if (firstPause) addEvent({ kind: "system", text: `Jay Jay paused the office — ${c.kind} on the model. It will auto-resume when the model is reachable again (or press ALL HANDS).` });
+    startRecoveryProbe();
   } else if ((task.attempts || 0) + 1 < MAX_ATTEMPTS) {
     updateTask(task.id, { status: "queued", attempts: (task.attempts || 0) + 1, startedAt: null, reviewNotes: c.msg.slice(0, 200) });
     addEvent({ kind: "redo", text: `Jay Jay ↺ ${agent.name}: retry "${task.title}" (error)`, agentId: agent.id, taskId: task.id });
@@ -463,6 +469,28 @@ async function tick() {
   }
 }
 
+function clearRecoveryProbe() { if (recoveryTimer) { clearInterval(recoveryTimer); recoveryTimer = null; } }
+// Probe the model while paused-by-LLM; resume the office the moment it answers.
+function startRecoveryProbe() {
+  if (recoveryTimer) return;
+  recoveryTimer = setInterval(async () => {
+    if (!settings.paused || !pausedByLLM) { clearRecoveryProbe(); return; }
+    let ok = false;
+    try { ok = await pingModel(); } catch { ok = false; }
+    if (!ok) return;
+    clearRecoveryProbe();
+    pausedByLLM = false;
+    settings.paused = false;
+    if (autonomousBeforePause != null) { settings.autonomous = autonomousBeforePause; autonomousBeforePause = null; }
+    // Re-queue anything that got blocked during the outage so it runs again.
+    for (const t of getTasks()) if (t.status === "blocked") updateTask(t.id, { status: "queued", startedAt: null, attempts: 0, capacityRetries: 0, reviewNotes: "model recovered — re-queued" });
+    bus.emit("settings", getSettings());
+    addEvent({ kind: "system", text: "✅ Model reachable again — Jay Jay resumed the office automatically." });
+    tick().catch(() => {});
+  }, PROBE_MS);
+  if (recoveryTimer.unref) recoveryTimer.unref();
+}
+
 let timer = null;
 export function startOrchestrator() {
   if (timer) return;
@@ -473,12 +501,15 @@ export function startOrchestrator() {
 
 export const dispatchNow = () => tick();
 export function clockOut() {
+  // A deliberate user pause — do NOT auto-resume it.
+  clearRecoveryProbe(); pausedByLLM = false; autonomousBeforePause = null;
   setSetting("paused", true);
   addEvent({ kind: "system", text: "Jay Jay: clock out — workers standing down" });
 }
 export function allHands() {
   // Resume the office (the opposite of CLOCK OUT). Does NOT touch AUTO — the
   // demo is controlled only by the AUTO toggle.
+  clearRecoveryProbe(); pausedByLLM = false; autonomousBeforePause = null;
   settings.paused = false;
   bus.emit("settings", getSettings());
   addEvent({ kind: "system", text: "Jay Jay: all hands — back to work" });
