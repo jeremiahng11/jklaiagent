@@ -460,6 +460,6 @@ if (process.env.SEED_DEMO === "true") { const n = seedDemoTasks(); if (n) consol
 startOrchestrator();
 startScheduler();
 await app.listen({ port: PORT, host: HOST });
-console.log(`[mission-control] http://${HOST}:${PORT}  (Meridian: ${usingGemini ? "live" : "simulated"})`);
-console.log(`[mission-control] models via Meridian — heavy (work/plan/synthesis): ${GEMINI_MODEL} | light (review/routing/demo): ${GEMINI_FLASH_MODEL}`);
+console.log(`[mission-control] http://${HOST}:${PORT}  (Claude Code SDK: ${usingGemini ? "direct" : "simulated"})`);
+console.log(`[mission-control] models — heavy (work/plan/synthesis): ${GEMINI_MODEL} | light (review/routing/demo): ${GEMINI_FLASH_MODEL}`);
 embed("ping").then((v) => console.log(`[rag] ${Array.isArray(v) && v.length ? `local semantic memory active (${v.length}-dim embeddings)` : "embeddings unavailable — using keyword recall"}`)).catch(() => {});

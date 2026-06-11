@@ -4,8 +4,8 @@
 // Meridian reachable) everything degrades to a believable simulation so the
 // office still runs end-to-end.
 
-import Anthropic from "@anthropic-ai/sdk";
-import { MERIDIAN_BASE_URL, MERIDIAN_API_KEY, HEAVY_MODEL, LIGHT_MODEL, SIMULATE } from "./config.js";
+import { query } from "@anthropic-ai/claude-agent-sdk";
+import { HEAVY_MODEL, LIGHT_MODEL, SIMULATE } from "./config.js";
 import { embedText } from "./embeddings.js";
 import { executeTool } from "./tools.js";
 import { addEvent, recordUsage, setAgent, getAgent, bus } from "./store.js";
@@ -15,6 +15,8 @@ import { AGENT_DEFS } from "./agents.js";
 const GEMINI_MODEL = HEAVY_MODEL;
 const GEMINI_FLASH_MODEL = LIGHT_MODEL;
 const isLight = (model) => /haiku/i.test(model || "");
+// The Claude Code SDK takes a model alias; map our full ids to it.
+const modelAlias = (m) => { const s = String(m || "").toLowerCase(); return s.includes("haiku") ? "haiku" : s.includes("opus") ? "opus" : "sonnet"; };
 
 const AGENT_BY_DEPT = Object.fromEntries(AGENT_DEFS.map((a) => [a.department, a]));
 
@@ -35,9 +37,10 @@ function wakeAgent(agentId, label, minMs = 4500) {
   };
 }
 
-// One Anthropic client pointed at Meridian's Anthropic-compatible endpoint.
-// Meridian routes to your Claude Code subscription; both tiers share it.
-const ai = SIMULATE ? null : new Anthropic({ baseURL: MERIDIAN_BASE_URL, apiKey: MERIDIAN_API_KEY });
+// Talk to Claude DIRECTLY via the Claude Code SDK (query) — uses your logged-in
+// Claude Code / Max session, bypassing Meridian (≈30x faster). `ai` is a presence
+// flag (the SDK has no client object). SIMULATE=true disables real calls.
+const ai = SIMULATE ? null : true;
 const clientFor = () => ai;
 export const usingGemini = !!ai;
 
@@ -101,22 +104,57 @@ const usageMeta = (res) => ({ promptTokenCount: res?.usage?.input_tokens || 0, c
 // — no error/retry loop). Re-throws a user cancellation; throws a timeout only
 // when nothing usable was produced.
 let partialNoticeAt = 0;
+// Run a completion through the Claude Code SDK and return an Anthropic-Message-
+// shaped result ({content:[{type:'text',text}], usage}) so the rest of the brain
+// is unchanged. Extracts the system + user text from the Anthropic-style body.
+// On timeout, aborts and salvages whatever streamed (no error/retry loop).
 async function streamFinal(body, signal) {
-  const stream = ai.messages.stream(body, signal ? { signal } : undefined);
-  let partial = "";
-  try { stream.on("text", (d) => { partial += d; }); } catch {}
+  const system = body.system || "";
+  const lastUser = [...(body.messages || [])].reverse().find((m) => m.role === "user");
+  const prompt = Array.isArray(lastUser?.content)
+    ? lastUser.content.filter((b) => b.type === "text").map((b) => b.text).join("\n").trim()
+    : String(lastUser?.content || "").trim();
+
+  const ac = new AbortController();
+  if (signal) { if (signal.aborted) ac.abort(); else signal.addEventListener("abort", () => ac.abort(), { once: true }); }
   let timedOut = false;
-  const to = setTimeout(() => { timedOut = true; try { stream.abort(); } catch {} }, TIMEOUT_MS);
+  const to = setTimeout(() => { timedOut = true; try { ac.abort(); } catch {} }, TIMEOUT_MS);
+
+  let partial = "", finalText = "", usage = null;
   try {
-    return await stream.finalMessage();
+    const q = query({
+      prompt,
+      options: {
+        model: modelAlias(body.model),
+        systemPrompt: system,        // a string fully replaces the default system prompt
+        maxTurns: 1,
+        allowedTools: [],            // pure generation — no file/bash tools
+        includePartialMessages: true, // stream deltas so we can salvage partials
+        abortController: ac,
+      },
+    });
+    for await (const m of q) {
+      if (m.type === "stream_event") {
+        const ev = m.event;
+        if (ev?.type === "content_block_delta" && ev.delta?.type === "text_delta") partial += ev.delta.text || "";
+      } else if (m.type === "assistant" && !partial) {
+        finalText = (m.message?.content || []).filter((b) => b?.type === "text").map((b) => b.text).join("");
+      } else if (m.type === "result") {
+        if (m.subtype === "success" && typeof m.result === "string" && m.result.trim()) finalText = m.result;
+        usage = m.usage || usage;
+      }
+    }
+    const text = (finalText || partial).trim();
+    return { content: [{ type: "text", text }], usage: usage ? { input_tokens: usage.input_tokens || 0, output_tokens: usage.output_tokens || 0 } : null };
   } catch (e) {
     if (signal?.aborted && !timedOut) throw e; // user cancelled — discard partial
-    if (partial.trim().length > 400) {
+    const text = (partial || finalText).trim();
+    if (text.length > 400) {
       const now = Date.now();
       if (now - partialNoticeAt > 30000) { partialNoticeAt = now; try { addEvent({ kind: "system", text: "Build hit the time limit — delivering what was generated. Use Follow up to extend it." }); } catch {} }
-      return { content: [{ type: "text", text: partial }], usage: null };
+      return { content: [{ type: "text", text }], usage: null };
     }
-    if (timedOut) throw new Error("Meridian request timed out");
+    if (timedOut) throw new Error("request timed out");
     throw e;
   } finally {
     clearTimeout(to);
