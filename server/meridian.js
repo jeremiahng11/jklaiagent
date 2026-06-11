@@ -68,6 +68,11 @@ const withTimeout = (p, ms = TIMEOUT_MS) => Promise.race([p, new Promise((_, rej
 // endpoints are slow); the fit-cap shrinks oversized builds so they COMPLETE
 // rather than time out. Raise LLM_EST_TPS if your endpoint is fast.
 const EST_TPS = Number(process.env.LLM_EST_TPS || 11);
+// Turns the SDK agent may take. 1 is too few — Claude Code may spend a turn
+// trying to use tools, leaving no text and an "max turns" error. Give it room.
+const SDK_MAX_TURNS = Number(process.env.LLM_MAX_TURNS || 8);
+// Force a plain text answer instead of Claude Code's default file-writing behavior.
+const OUTPUT_DIRECTIVE = "\n\nOUTPUT RULES (critical): Produce your COMPLETE deliverable as TEXT in your reply right now. Do NOT use any tools, do NOT write or edit files, do NOT ask questions or stop early — output all code/markdown directly in this message.";
 
 // Cap output tokens per tier (model limit) AND to what can be generated within
 // the timeout (so a big request can't time out and loop). Sized from EST_TPS.
@@ -131,8 +136,8 @@ async function streamFinal(body, signal) {
       prompt,
       options: {
         model: modelAlias(body.model),
-        systemPrompt: system,        // a string fully replaces the default system prompt
-        maxTurns: 1,
+        systemPrompt: system + OUTPUT_DIRECTIVE, // string fully replaces the default prompt
+        maxTurns: SDK_MAX_TURNS,     // >1 so it can finish instead of erroring on turn 1
         allowedTools: [],            // pure generation — no file/bash tools
         includePartialMessages: true, // stream deltas so we can salvage partials
         abortController: ac,
@@ -407,6 +412,16 @@ const CRAFT_BAR =
   "- Design tokens in :root: a DISTINCTIVE brand identity (NOT generic default blue — choose a real palette), a characterful display font for headings (e.g. a serif like Fraunces, or a strong sans) + Inter for body via a Google Fonts <link>, a shadow scale (sm/md/lg), a consistent radius.\n" +
   "- Real motion on EVERY screen change: transitions with iOS/spring easings such as cubic-bezier(0.32,0.72,0,1) and cubic-bezier(0.34,1.56,0.64,1); staggered fade-up entrances on content; animated success checkmarks; progress bars between steps; skeletons while 'loading'.\n" +
   "- Considered layout: comfortable spacing, aligned grids, thumb-friendly targets. Use normal flow / flex / grid — do NOT absolutely-position banners or labels on top of cards or other content (that bug — e.g. a 'Tap to activate' strip overlapping the card — is unacceptable). Verify NOTHING overlaps or clips: every label fits its box, each element has its own space.";
+// Focused-flow mode: build the core 6-8 screens fast (then extend via Follow-up),
+// instead of the exhaustive 12-20+ screen build. Toggle with BUILD_SCOPE=focused.
+const BUILD_SCOPE = String(process.env.BUILD_SCOPE || "full").toLowerCase();
+const CRAFT_FOCUSED =
+  "SCOPE: Build a FOCUSED but COMPLETE core flow — the 6-8 MOST IMPORTANT screens end to end with working navigation (e.g. welcome → sign-up/OTP → KYC → card application → activation + animated success → wallet DASHBOARD with the card eye-toggle). Each screen must still be RICH and real (proper header, sub-copy, components, realistic data, empty/loading/success states) — NOT a sparse placeholder. Keep the set tight so it finishes quickly; write ALL the code for these screens, no '...'. The user can request more screens/depth afterward via follow-up.\n" +
+  "CRAFT (what separates pro from generic):\n" +
+  "- Design tokens in :root: a DISTINCTIVE brand identity (NOT generic default blue), a characterful display font for headings + Inter for body via a Google Fonts <link>, a shadow scale, a consistent radius.\n" +
+  "- Real motion on every screen change: transitions with iOS/spring easings (cubic-bezier(0.32,0.72,0,1)); staggered fade-up entrances; an animated success checkmark; skeletons while 'loading'.\n" +
+  "- Considered layout: comfortable spacing, thumb-friendly targets, NOTHING overlapping or clipping (no banners absolutely-positioned over cards).";
+const activeCraftBar = () => (BUILD_SCOPE === "focused" ? CRAFT_FOCUSED : CRAFT_BAR);
 const ENG_MULTI =
   "ENGINEERING: Write the FULL project — every file complete, no placeholders, no \"...\". Split into PROPER, separate files (do NOT cram everything into one file). Output EACH file as a marker line \"===== FILE: relative/path.ext =====\" immediately followed by its fenced code block, so it packages into a downloadable .zip with the correct folder structure. Every import / link / href / src / path MUST use the exact file names and resolve. Include a README.md with exact run instructions. Keep prose to a one-line intro; the deliverable is the project.";
 // CSS framework CDNs are a footgun for generated code (URL typos like
@@ -556,14 +571,14 @@ export async function runWork(agent, task, memoryText = "", model = null, priorW
       // Full app/platform in the stack Jay Jay recommended — multi-file project.
       const rules = webStack.has(build.stack) ? `\n\n${STYLING_RULES}` : "";
       const foundation = (build.stack === "static" || build.stack === "node") && isMultiScreenWeb ? `\n\n${WEB_FOUNDATION}` : "";
-      system = `${agent.persona}\n\nBuild a COMPLETE, RUNNABLE project — production quality, not a prototype.\n${STACK_GUIDE[build.stack] || STACK_GUIDE.node}\n\n${DESIGN_BAR}${rules}\n\n${CRAFT_BAR}${foundation}\n\n${ENG_MULTI}`;
+      system = `${agent.persona}\n\nBuild a COMPLETE, RUNNABLE project — production quality, not a prototype.\n${STACK_GUIDE[build.stack] || STACK_GUIDE.node}\n\n${DESIGN_BAR}${rules}\n\n${activeCraftBar()}${foundation}\n\n${ENG_MULTI}`;
     } else if (singleRequested) {
       const foundation = isMultiScreenWeb ? `\n\n${WEB_FOUNDATION}` : "";
-      system = `${agent.persona}\n\nBuild a COMPLETE, WORKING, BEAUTIFUL front-end — production quality, not a prototype.\n\n${DESIGN_BAR}\n\n${CRAFT_BAR}\n\n${STYLING_RULES}${foundation}\n\nENGINEERING: The user asked for a SINGLE file, so deliver one self-contained index.html with all your hand-written CSS in an inline <style> (design tokens in :root) and JS in an inline <script> — NO Tailwind/CDN. Full code, no placeholders. Output it as "===== FILE: index.html =====" then its fenced code block. One-line intro only.`;
+      system = `${agent.persona}\n\nBuild a COMPLETE, WORKING, BEAUTIFUL front-end — production quality, not a prototype.\n\n${DESIGN_BAR}\n\n${activeCraftBar()}\n\n${STYLING_RULES}${foundation}\n\nENGINEERING: The user asked for a SINGLE file, so deliver one self-contained index.html with all your hand-written CSS in an inline <style> (design tokens in :root) and JS in an inline <script> — NO Tailwind/CDN. Full code, no placeholders. Output it as "===== FILE: index.html =====" then its fenced code block. One-line intro only.`;
     } else {
       // DEFAULT for web: a proper MULTI-FILE project, not one big HTML.
       const foundation = isMultiScreenWeb ? `\n\n${WEB_FOUNDATION}` : "";
-      system = `${agent.persona}\n\nBuild a COMPLETE, WORKING, BEAUTIFUL front-end — production quality, not a prototype.\n\n${DESIGN_BAR}\n\n${CRAFT_BAR}\n\n${STYLING_RULES}${foundation}\n\nENGINEERING: Build a PROPER MULTI-FILE web project — do NOT cram everything into one HTML. Use separate files: index.html (and any other screens), css/styles.css (your real design classes), js/app.js (split into modules if helpful), and manifest.json for the PWA. Link css/styles.css and js/app.js with their exact paths. ${ENG_MULTI}`;
+      system = `${agent.persona}\n\nBuild a COMPLETE, WORKING, BEAUTIFUL front-end — production quality, not a prototype.\n\n${DESIGN_BAR}\n\n${activeCraftBar()}\n\n${STYLING_RULES}${foundation}\n\nENGINEERING: Build a PROPER MULTI-FILE web project — do NOT cram everything into one HTML. Use separate files: index.html (and any other screens), css/styles.css (your real design classes), js/app.js (split into modules if helpful), and manifest.json for the PWA. Link css/styles.css and js/app.js with their exact paths. ${ENG_MULTI}`;
     }
   }
   const userPrompt = `TASK: ${task.title}\n\nDETAILS:\n${task.prompt}${memBlock}${priorBlock}${fixBlock}${upstreamBlock}${projectBlock}${fileBlock}`;
