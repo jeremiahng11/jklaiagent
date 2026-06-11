@@ -120,6 +120,11 @@ async function streamFinal(body, signal) {
   let timedOut = false;
   const to = setTimeout(() => { timedOut = true; try { ac.abort(); } catch {} }, TIMEOUT_MS);
 
+  // Auth: if a Claude Code OAuth/Max token is present, make it authoritative —
+  // strip any ANTHROPIC_API_KEY (a stale/placeholder one would cause a 401).
+  const childEnv = { ...process.env };
+  if (childEnv.CLAUDE_CODE_OAUTH_TOKEN) delete childEnv.ANTHROPIC_API_KEY;
+
   let partial = "", finalText = "", usage = null;
   try {
     const q = query({
@@ -131,6 +136,7 @@ async function streamFinal(body, signal) {
         allowedTools: [],            // pure generation — no file/bash tools
         includePartialMessages: true, // stream deltas so we can salvage partials
         abortController: ac,
+        env: childEnv,
       },
     });
     for await (const m of q) {
