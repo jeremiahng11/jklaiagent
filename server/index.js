@@ -23,7 +23,7 @@ import { startScheduler, seedRoutines } from "./schedule.js";
 import { seedDemoTasks } from "./demoSeed.js";
 import multipart from "@fastify/multipart";
 import {
-  startOrchestrator, dispatchNow, allHands, clockOut, getSettings, setSetting, reviewForImprovements,
+  startOrchestrator, dispatchNow, allHands, clockOut, getSettings, setSetting, reviewForImprovements, getDiag,
 } from "./orchestrator.js";
 import {
   verifyCredentials, setSession, clearSession, isAuthed, isAuthedFromHeader, loginPage,
@@ -97,6 +97,9 @@ app.get("/api/me", (req, reply) => {
 app.get("/api/state", (req, reply) => {
   reply.send({ ...snapshot(), settings: getSettings(), gemini: usingGemini, model: GEMINI_MODEL, demoModel: GEMINI_DEMO_MODEL });
 });
+
+// Plain-English "why isn't anything running?" — live-pings the model.
+app.get("/api/diag", async (req, reply) => { reply.send(await getDiag()); });
 
 app.post("/api/tasks", async (req, reply) => {
   let title, prompt, department, assignedTo, plan, priority;

@@ -40,6 +40,30 @@ export function setSetting(key, value) {
   bus.emit("settings", getSettings());
 }
 
+// One-shot health/diagnostic: live-pings the model and explains, in plain
+// English, why work is or isn't flowing. Surfaced at GET /api/diag.
+export async function getDiag() {
+  let modelReachable = null;
+  try { modelReachable = await pingModel(); } catch { modelReachable = false; }
+  const now = Date.now();
+  const queued = getTasks()
+    .filter((t) => ["queued", "paused", "blocked"].includes(t.status))
+    .map((t) => ({ title: t.title, status: t.status, department: t.department || "(unrouted)", assignedTo: t.assignedTo || null, waiting: t.nextRunAt && t.nextRunAt > now ? Math.round((t.nextRunAt - now) / 1000) + "s" : null, note: t.reviewNotes || null }));
+  const workers = getWorkers().map((a) => ({ name: a.name, dept: a.department, status: a.status, running: busy.has(a.id) }));
+  let verdict;
+  if (settings.paused)
+    verdict = pausedByLLM
+      ? `Office PAUSED by an LLM problem. Model reachable now = ${modelReachable}. ${modelReachable ? "Should auto-resume within ~45s." : "Model NOT reachable — CLAUDE_CODE_OAUTH_TOKEN is almost certainly invalid/expired; fix it and it resumes."}`
+      : "Office PAUSED manually (CLOCK OUT). Press ALL HANDS to resume.";
+  else if (modelReachable === false)
+    verdict = "Office running but the MODEL IS UNREACHABLE — every task stalls/fails. CLAUDE_CODE_OAUTH_TOKEN is invalid/expired. Regenerate with `claude setup-token` and re-set it.";
+  else if (!queued.length)
+    verdict = "Office running, model reachable, nothing queued.";
+  else
+    verdict = "Office running and model reachable — tasks should dispatch. Check workers/queued below for a wedged agent or an unrouted task.";
+  return { verdict, paused: settings.paused, pausedByLLM, autonomous: settings.autonomous, modelReachable, workers, queued };
+}
+
 const deptAgentBusy = (dept) => {
   const w = getWorkers().find((a) => a.department === dept);
   return w ? busy.has(w.id) : false;
