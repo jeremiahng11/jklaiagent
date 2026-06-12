@@ -223,6 +223,10 @@ async function runTask(agent, task) {
         embed(note).then((vec) => addMemoryNote(agent.department, note, task.id, vec)).catch(() => {});
       }
       addEvent({ kind: "done", text: `Jay Jay ✓ ${agent.name}: ${task.title} — ${verdict.note}`, agentId: agent.id, taskId: task.id });
+      // Security steps in: WARDEN reviews sensitive deliverables built by others.
+      if (isUser && agent.department !== "security" && isSecuritySensitive(task)) {
+        await securityReview(task, result, agent).catch(() => {});
+      }
     } else if ((task.attempts || 0) + 1 < MAX_ATTEMPTS) {
       updateTask(task.id, { status: "queued", attempts: (task.attempts || 0) + 1, assignedTo: agent.id, startedAt: null, reviewNotes: verdict.note });
       addEvent({ kind: "redo", text: `Jay Jay ↺ ${agent.name}: redo ${task.title} (${verdict.note})`, agentId: agent.id, taskId: task.id });
@@ -303,6 +307,35 @@ function handleError(agent, task, err) {
     updateTask(task.id, { status: "failed", completedAt: Date.now(), reviewNotes: c.msg.slice(0, 200) });
     createIssue({ kind: "error", title: `"${task.title}" failed after retries`, detail: c.msg.slice(0, 400), taskId: task.id, agentId: agent.id });
     addEvent({ kind: "fail", text: `Jay Jay ✗ ${agent.name}: "${task.title}" failed`, agentId: agent.id, taskId: task.id });
+  }
+}
+
+// ── Security steps in ───────────────────────────────────────────────────────
+// WARDEN auto-reviews security-sensitive deliverables (payments, auth, PII,
+// banking) even when another agent built them — no manual security task needed.
+function isSecuritySensitive(task) {
+  return /\b(payment|wallet|card|debit|credit|bank|banking|kyc|aml|auth|authentication|login|sign[- ]?in|password|credential|secret|api ?key|token|jwt|oauth|session|pii|personal data|gdpr|pdpa|\bmas\b|compliance|encrypt|financ|crypto|visa|mastercard)\b/i.test(`${task.title} ${task.prompt}`);
+}
+async function securityReview(task, result, builder) {
+  const warden = getWorkers().find((a) => a.department === "security");
+  if (!warden || busy.has(warden.id)) return;
+  busy.add(warden.id);
+  setAgent(warden.id, { status: "working", task: `security review: ${task.title}` });
+  addEvent({ kind: "review", text: `🛡️ ${warden.name} stepped in to security-review "${task.title}" for ${builder.name}`, agentId: warden.id, taskId: task.id });
+  try {
+    const assessment = await consultAgent("security",
+      `Security-review this deliverable for the task "${task.title}". Flag CONCRETE risks only: hard-coded secrets/keys, missing or weak auth, input validation / injection, insecure storage of PII or card data, transport security, and compliance (PDPA/MAS) gaps. End with exactly one line: "VERDICT: OK" or "VERDICT: NEEDS FIXES". Be brief.\n\nDELIVERABLE:\n${String(result).slice(0, 12000)}`,
+      GEMINI_FLASH_MODEL || GEMINI_MODEL).catch(() => "");
+    if (assessment) {
+      const needsFixes = /VERDICT:\s*NEEDS/i.test(assessment) || /\bneeds fixes\b/i.test(assessment);
+      addEvent({ kind: needsFixes ? "issue" : "done", text: `🛡️ ${warden.name}: security review — ${needsFixes ? "flagged risks (see Issues)" : "no blocking issues"}`, agentId: warden.id, taskId: task.id });
+      if (needsFixes) createIssue({ kind: "security", title: `Security review flagged "${task.title}"`, detail: assessment.slice(0, 1000), taskId: task.id, agentId: warden.id });
+      const note = `Security review of "${task.title}": ${needsFixes ? "risks flagged — " + assessment.slice(0, 120) : "passed"}`;
+      embed(note).then((vec) => addMemoryNote("security", note, task.id, vec)).catch(() => {});
+    }
+  } finally {
+    busy.delete(warden.id);
+    setAgent(warden.id, { status: "idle", task: "standing by", lastRunAt: Date.now() });
   }
 }
 
