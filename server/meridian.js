@@ -579,7 +579,7 @@ export async function runWork(agent, task, memoryText = "", model = null, priorW
     ? `\n\nNOTES FROM EARLIER WORK (build on these, continue and add to them, don't repeat):\n${memoryText}`
     : "";
   const priorBlock = priorWork
-    ? `\n\nPREVIOUS DELIVERABLE (continue from it — keep what's good, apply the changes, and return the COMPLETE updated result):\n${String(priorWork).slice(-16000)}`
+    ? `\n\nPREVIOUS DELIVERABLE — you are REVISING this EXISTING project, not starting over. Keep everything that already works, apply the requested change, and return the COMPLETE updated project: EVERY file, each with its "===== FILE: path =====" marker, INCLUDING files you did not change. Do NOT drop files and do NOT collapse a multi-file project into a single file. The result must be at least as complete as this one:\n${String(priorWork).slice(-120000)}`
     : "";
   // On a re-do, the CTO's review note lists the specific gaps to fix.
   const fixBlock = priorWork && task.reviewNotes && task.reviewNotes !== "follow-up requested"

@@ -34,6 +34,17 @@ const lastGen = new Map(); // department -> ts
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Infer the stack of an existing multi-file deliverable so a follow-up continues
+// in the SAME structure (instead of being re-decided into a single HTML).
+function stackFromPrior(prior) {
+  if (/manage\.py|wsgi\.py|INSTALLED_APPS/.test(prior)) return "django";
+  if (/pubspec\.yaml|lib\/main\.dart/.test(prior)) return "flutter";
+  if (/\bapp\.json\b|App\.js|react-native|\bexpo\b/.test(prior)) return "react-native";
+  if (/vite\.config|src\/App\.(jsx|tsx)|src\/main\.(jsx|tsx)/.test(prior)) return "react";
+  if (/package\.json/.test(prior) && /express|fastify|server\.js|app\.listen/.test(prior)) return "node";
+  return null; // multi-file but static (HTML/CSS/JS) → keep as a multi-file mockup
+}
+
 export const getSettings = () => ({ ...settings });
 export function setSetting(key, value) {
   settings[key] = value;
@@ -155,10 +166,23 @@ async function runTask(agent, task) {
       : [];
     // For builds, Jay Jay decides: a UI mockup vs a full app/platform in a real
     // stack (Django / Node / Flutter / React / React Native).
-    let build = null;
+    let build = task.build || null;
     if (isUser && agent.department === "development") {
-      build = await recommendStack(task, lightModel).catch(() => null);
-      if (build) addEvent({ kind: "system", text: `Jay Jay: build "${task.title}" as ${build.type === "app" ? build.stack.toUpperCase() + " app" : "a UI mockup"}${build.reason ? " — " + build.reason : ""}`, agentId: "jeremiah", taskId: task.id });
+      // On a revision/follow-up KEEP the prior deliverable's STRUCTURE so a
+      // multi-file project isn't re-decided into a single HTML and lose files.
+      if (!build && priorWork) {
+        const files = (String(priorWork).match(/=====\s*FILE:/gi) || []).length;
+        if (files > 1) {
+          const stack = stackFromPrior(String(priorWork));
+          build = stack ? { type: "app", stack, reason: "continue existing project" }
+                        : { type: "mockup", stack: "static", reason: "continue existing project" };
+        }
+      }
+      if (!build) build = await recommendStack(task, lightModel).catch(() => null);
+      if (build) {
+        updateTask(task.id, { build }); // remember so every follow-up keeps the same structure
+        addEvent({ kind: "system", text: `Jay Jay: build "${task.title}" as ${build.type === "app" ? build.stack.toUpperCase() + " app" : "a UI mockup"}${build.reason ? " — " + build.reason : ""}`, agentId: "jeremiah", taskId: task.id });
+      }
     }
     // A UI mockup is self-contained HTML/CSS/JS — it needs no API/credential
     // tools, so skip the tool loop, and build it on the FAST tier so it actually
