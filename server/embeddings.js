@@ -6,10 +6,31 @@
 // over time.
 
 import { pipeline, env } from "@xenova/transformers";
+import { existsSync, mkdirSync, cpSync, accessSync, constants } from "fs";
 
-// Cache the model inside the project/image so runtime needs no network.
-env.cacheDir = process.env.EMBED_CACHE_DIR || "./.models";
+// Where the model lives at runtime. Prefer a PERSISTENT location (the data
+// volume) so it's fetched at most once and survives redeploys; seed it from the
+// copy baked into the image so there's usually no download at all. If that
+// location isn't writable (e.g. a root-owned volume), fall back to the baked
+// in-image cache, which always works.
+const BAKED = "./.models";
+function pickCacheDir() {
+  const want = process.env.EMBED_CACHE_DIR || `${process.env.DATA_DIR || "/app/data"}/.models`;
+  try {
+    mkdirSync(want, { recursive: true });
+    accessSync(want, constants.W_OK);
+    if (!existsSync(`${want}/Xenova`) && existsSync(`${BAKED}/Xenova`)) {
+      cpSync(`${BAKED}/Xenova`, `${want}/Xenova`, { recursive: true });
+      console.log("[embed] seeded model cache from image →", want);
+    }
+    return want;
+  } catch {
+    return BAKED; // not writable → use the model baked into the image
+  }
+}
+env.cacheDir = pickCacheDir();
 env.allowLocalModels = true;
+console.log("[embed] model cache dir:", env.cacheDir);
 
 // all-MiniLM-L6-v2: 384-dim, ~25MB quantized — fast on CPU, fine on a Pi.
 const MODEL = process.env.EMBED_MODEL || "Xenova/all-MiniLM-L6-v2";

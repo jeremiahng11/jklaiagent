@@ -744,17 +744,25 @@ export function recallMemory(scope, query = "", queryEmbedding = null, limit = 8
   const out = [];
   const seen = new Set();
   const add = (t) => { const k = String(t).replace(/^-\s*/, "").trim().toLowerCase(); if (k && !seen.has(k) && out.length < limit) { seen.add(k); out.push(String(t).replace(/^-\s*/, "").trim()); } };
-  // 1) Semantic: rank embedded notes by cosine similarity (+ light recency).
-  const notes = state.memNotes.filter((n) => n.scope === scope && Array.isArray(n.embedding));
+  // 1) Semantic recall across the WHOLE org's memory (every department), not just
+  //    this agent's silo — so a build can reuse anything the team has learned.
+  //    The agent's own department gets a boost; cross-department notes are tagged
+  //    so the agent knows the source. Light recency tiebreak.
+  const notes = state.memNotes.filter((n) => Array.isArray(n.embedding));
   if (queryEmbedding && notes.length) {
     const minT = Math.min(...notes.map((n) => n.createdAt));
     const span = (Math.max(...notes.map((n) => n.createdAt)) - minT) || 1;
-    notes.map((n) => { const c = cosine(queryEmbedding, n.embedding); return { n, c, s: c + 0.04 * ((n.createdAt - minT) / span) }; })
+    notes.map((n) => {
+      const c = cosine(queryEmbedding, n.embedding);
+      const ownBoost = n.scope === scope ? 0.08 : 0;
+      return { n, c, s: c + ownBoost + 0.04 * ((n.createdAt - minT) / span) };
+    })
       .filter((x) => x.c >= 0.25) // drop clearly-unrelated notes
-      .sort((a, b) => b.s - a.s).slice(0, limit).forEach((x) => add(x.n.text));
+      .sort((a, b) => b.s - a.s).slice(0, limit)
+      .forEach((x) => add(x.n.scope === scope ? x.n.text : `[${x.n.scope}] ${x.n.text}`));
   }
-  // 2) Fill remaining slots from the legacy blob (keyword/recency), de-duped —
-  //    so pre-RAG memory and sparse scopes still contribute.
+  // 2) Fill remaining slots from this scope's legacy blob (keyword/recency),
+  //    de-duped — so pre-RAG memory and sparse scopes still contribute.
   if (out.length < limit) recallByKeyword(scope, query, limit).split("\n").forEach(add);
   return out.join("\n");
 }
