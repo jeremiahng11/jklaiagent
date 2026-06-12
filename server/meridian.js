@@ -428,7 +428,10 @@ const CRAFT_BAR =
   "- Considered layout: comfortable spacing, aligned grids, thumb-friendly targets. Use normal flow / flex / grid — do NOT absolutely-position banners or labels on top of cards or other content (that bug — e.g. a 'Tap to activate' strip overlapping the card — is unacceptable). Verify NOTHING overlaps or clips: every label fits its box, each element has its own space.";
 // Focused-flow mode: build the core 6-8 screens fast (then extend via Follow-up),
 // instead of the exhaustive 12-20+ screen build. Toggle with BUILD_SCOPE=focused.
-const BUILD_SCOPE = String(process.env.BUILD_SCOPE || "full").toLowerCase();
+// Default to FOCUSED: at ~56 tok/s a full 12-20 screen build can exceed the
+// timeout and never finish. Focused builds the core 6-8 screens, completes in a
+// few minutes, and you extend with Follow-up. Set BUILD_SCOPE=full to opt back in.
+const BUILD_SCOPE = String(process.env.BUILD_SCOPE || "focused").toLowerCase();
 const CRAFT_FOCUSED =
   "SCOPE: Build a FOCUSED but COMPLETE core flow — the 6-8 MOST IMPORTANT screens end to end with working navigation (e.g. welcome → sign-up/OTP → KYC → card application → activation + animated success → wallet DASHBOARD with the card eye-toggle). Each screen must still be RICH and real (proper header, sub-copy, components, realistic data, empty/loading/success states) — NOT a sparse placeholder. Keep the set tight so it finishes quickly; write ALL the code for these screens, no '...'. The user can request more screens/depth afterward via follow-up.\n" +
   "CRAFT (what separates pro from generic):\n" +
