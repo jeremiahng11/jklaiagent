@@ -450,6 +450,28 @@ const STYLING_RULES =
   "- Put your ENTIRE design system in css/styles.css: design tokens in :root (a distinctive colour palette, a display font + body font, spacing, radius, a shadow scale), then real semantic classes (.btn, .card, .screen, .input, .chip, etc.). Reference tokens with var(--x).\n" +
   "- Load fonts with a Google Fonts <link> in <head> — and double-check the URL is EXACTLY https:// (no typos like httpss://). It's the only external resource.\n" +
   "- EVERY class used in the HTML must be defined in your styles.css. No undefined classes, no framework utilities. Self-check before finishing: would this render fully styled with zero network/CDN dependencies besides the font link? It must.";
+
+// Non-app artifacts Development produces best as a single self-contained file —
+// each with its own brief instead of the multi-screen app design bar.
+function detectArtifact(text) {
+  const s = String(text).toLowerCase();
+  if (/\b(logo|app icon|favicon|brand ?mark|wordmark|icon set|brand identity)\b/.test(s)) return "logo";
+  if (/\b(invoice|receipt|quotation|\bquote\b|billing statement|purchase order)\b/.test(s)) return "invoice";
+  if (/\b(presentation|power ?point|\bpptx?\b|slide ?deck|\bslides\b|pitch ?deck|\bdeck\b)\b/.test(s)) return "deck";
+  if (/\b(landing page|marketing (page|site|mockup)|one[- ]?pager|hero section|sales page)\b/.test(s)) return "marketing";
+  return null;
+}
+function artifactSystem(kind, persona) {
+  const tail = ' Output it as "===== FILE: index.html =====" then a fenced code block. One-line intro only — no other prose.';
+  const base = `${persona}\n\nDeliver ONE self-contained index.html: hand-written inline CSS with design tokens in :root, inline JS, and a single Google Fonts <link> only — NO Tailwind or any CDN. Distinctive, modern, production-grade craft; nothing overlapping or clipped.`;
+  const briefs = {
+    logo: "\n\nTASK: design a distinctive, professional LOGO. Show the primary logo as clean, scalable INLINE SVG, plus a monochrome variant, an app-icon/favicon (rounded square), and the mark on light AND dark backgrounds. Balanced geometry, a considered palette, memorable — not generic clip-art. Include the raw <svg> so it can be copied out.",
+    invoice: "\n\nTASK: produce a PRINT-READY INVOICE (A4, @media print friendly). Branded header, company & client blocks, invoice number / issue & due dates, a line-items table (description, qty, unit price, amount), subtotal, tax/GST, total, payment terms and bank details. Use realistic data drawn from the task.",
+    deck: "\n\nTASK: produce a PRESENTATION — one <section> per slide with keyboard arrow-key navigation: a title slide, agenda, 8–12 content slides with REAL structured content from the task, and a closing slide. Consistent layout, strong hierarchy, subtle slide transitions.",
+    marketing: "\n\nTASK: build a polished MARKETING landing page: hero (headline / sub / CTA), feature sections, social proof, pricing or a final CTA, and a footer. Strong visual hierarchy, responsive, subtle entrance animations.",
+  };
+  return base + (briefs[kind] || "") + tail;
+}
 const STACK_GUIDE = {
   django: "Stack: Django (Python). Deliver manage.py, the project package (settings.py with INSTALLED_APPS, urls.py, wsgi.py), app(s) with models.py / views.py / urls.py / admin.py, templates/ and static/ (css, js) for the UI, requirements.txt, and README.md (venv, pip install, migrate, runserver).",
   node: "Stack: Node.js. Deliver package.json (scripts + deps), an Express or Fastify server, routes, and a front-end (server-rendered views or a public/ folder with separate html/css/js), plus README.md (npm install, npm start).",
@@ -581,10 +603,14 @@ export async function runWork(agent, task, memoryText = "", model = null, priorW
     `No preamble like "Here is" — start directly with the title heading.`;
   let system = docSystem;
   if (isBuild) {
+    const artifact = detectArtifact(`${task.title} ${task.prompt}`);
     const singleRequested = /\b(single|one)[-\s]?(file|html|page)\b|self-?contained|inline (everything|all|css)/i.test(`${task.title} ${task.prompt}`);
     const webStack = new Set(["static", "node", "react", "django"]);
     const isMultiScreenWeb = /onboard|sign[- ]?up|\bapply\b|application|activat|\bkyc\b|\bflow\b|\bsteps?\b|wallet|top[- ]?up|screens?|journey|app\b/i.test(`${task.title} ${task.prompt}`);
-    if (build && build.type === "app") {
+    if (artifact) {
+      // Logo / invoice / presentation / marketing — a tailored single-file brief.
+      system = artifactSystem(artifact, agent.persona);
+    } else if (build && build.type === "app") {
       // Full app/platform in the stack Jay Jay recommended — multi-file project.
       const rules = webStack.has(build.stack) ? `\n\n${STYLING_RULES}` : "";
       const foundation = (build.stack === "static" || build.stack === "node") && isMultiScreenWeb ? `\n\n${WEB_FOUNDATION}` : "";
@@ -622,8 +648,8 @@ export async function runWork(agent, task, memoryText = "", model = null, priorW
 /* Router: pick the single best department for a task (so "Any" goes to the
    right specialist, not whoever is idle first). Flash classifier + keyword fallback. */
 const DEPT_KEYWORDS = {
-  development: ["code", "app", "api", "build", "website", "web app", "script", "program", "bug", "deploy", "frontend", "backend", "html", "python", "react", "flutter", "sql", "function", "feature", "prototype", "software", "endpoint", "library"],
-  research_lab: ["research", "report", "summary", "summarize", "brief", "write", "article", "analysis", "analyse", "analyze", "compare", "study", "document", "draft", "content", "blog", "whitepaper", "essay", "plan"],
+  development: ["code", "app", "api", "build", "website", "web app", "script", "program", "bug", "deploy", "frontend", "backend", "html", "python", "react", "flutter", "sql", "function", "feature", "prototype", "software", "endpoint", "library", "logo", "icon", "favicon", "invoice", "receipt", "quotation", "presentation", "powerpoint", "slides", "slide deck", "deck", "mockup", "wireframe", "landing page", "marketing page", "design", "dashboard", "integration", "integrate", "webhook", "sdk", "oauth", "widget"],
+  research_lab: ["research", "report", "summary", "summarize", "brief", "write", "article", "analysis", "analyse", "analyze", "compare", "study", "document", "draft", "content", "blog", "whitepaper", "essay", "plan", "proposal", "scope", "job scope", "statement of work", "memo", "update", "minutes", "documentation", "guide", "manual", "policy", "faq", "specification", "requirements"],
   observatory: ["find", "scan", "monitor", "investigate", "trends", "market", "competitor", "signal", "track", "watch", "discover", "explore", "intelligence", "landscape", "list of", "who are"],
   security: ["security", "vulnerability", "audit", "risk", "compliance", "pentest", "threat", "secure", "privacy", "pdpa", "mas", "encrypt", "exposure", "breach", "hardening"],
   admin: ["organize", "organise", "index", "record", "archive", "reconcile", "ledger", "catalog", "spreadsheet", "inventory", "sort", "categorize", "clean up", "format the data"],
@@ -642,7 +668,7 @@ export async function classifyDepartment(task, model = null) {
   if (ai && model) {
     try {
       const txt = await generate(
-        "Route this task to the single best department. Reply with ONLY one of these words: observatory (research, monitoring, finding things), research_lab (writing, analysis, reports, plans), development (code, apps, APIs, anything technical), security (security, compliance, risk), admin (organizing, records, structured data).",
+        "Route this task to the single best department. Reply with ONLY one of these words: observatory (research, monitoring, finding/discovering things), research_lab (writing & analysis: reports, proposals, job scopes, documents, updates, summaries incl. reading & summarizing API docs), development (code, apps, APIs, integrations, AND visual artifacts: logos, icons, invoices, presentations/slides, marketing pages, UI mockups), security (security, compliance, risk), admin (organizing, records, structured data).",
         text.slice(0, 1500),
         { model, temperature: 0 }
       );
@@ -666,7 +692,7 @@ export async function recommendStack(task, model = null) {
     : /(node\.?js|express|fastify|next\.?js)/.test(low) ? "node" : null;
   // An explicit HTML / mobile-web / mockup / UI-flow request → a self-contained
   // web mockup; never let the classifier upgrade it to a React/Node app.
-  const mockupHint = /(mockup|wireframe|prototype|html (project|page|mock|template|flow)|mobile[- ]?web|web (app )?mockup|single[- ]?page|landing page|html template|ui kit|screen flow|ui flow|design only|just the (ui|design|frontend))/.test(low)
+  const mockupHint = /(mockup|wireframe|prototype|html (project|page|mock|template|flow)|mobile[- ]?web|web (app )?mockup|single[- ]?page|landing page|html template|ui kit|screen flow|ui flow|design only|just the (ui|design|frontend)|logo|app icon|favicon|invoice|receipt|quotation|presentation|power ?point|slide ?deck|\bslides\b|pitch ?deck|marketing page)/.test(low)
     || (/\bhtml\b/.test(low) && /(mockup|flow|screens?|prototype|mobile|onboard|wallet|card)/.test(low));
   if (explicit) return { type: "app", stack: explicit, reason: "you named the stack" };
   if (mockupHint) return { type: "mockup", stack: "static", reason: "mobile web HTML mockup" };
