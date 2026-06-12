@@ -882,7 +882,7 @@ export function clearTasks(scope = "done") {
   const match = (t) => {
     if (t.status === "in_progress" || t.status === "review") return false;
     if (scope === "auto") return t.createdBy !== "user";
-    if (scope === "done") return t.status === "done" || t.status === "failed";
+    if (scope === "done") return t.status === "done" || t.status === "failed" || t.status === "blocked";
     if (scope === "all") return true;
     return false;
   };

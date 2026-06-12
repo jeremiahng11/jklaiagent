@@ -124,12 +124,25 @@ export function useAgentSocket() {
   }, [connected, applySnapshot]);
 
   const assignTask = useCallback((t, files) => api.createTask(t, files).catch((e) => console.error(e)), []);
-  const deleteTask = useCallback((id) => api.deleteTask(id).catch(() => {}), []);
+  // Optimistic: drop it from the board immediately so it never looks "stuck",
+  // even if the WS frame is delayed by a proxy.
+  const deleteTask = useCallback((id) => {
+    setTasks((p) => { const n = { ...p }; delete n[id]; return n; });
+    return api.deleteTask(id).catch(() => {});
+  }, []);
   const retryTask = useCallback((id) => api.retryTask(id), []); // let callers see errors
   const followupTask = useCallback((id, instruction, files) => api.followupTask(id, instruction, files).catch((e) => console.error(e)), []);
   const suggestImprovements = useCallback((id) => api.suggestImprovements(id).catch((e) => console.error(e)), []);
   const setAutoImprove = useCallback((id, on) => api.autoImprove(id, on).catch(() => {}), []);
-  const clearTasks = useCallback((scope) => api.clearTasks(scope).catch(() => {}), []);
+  const clearTasks = useCallback((scope) => {
+    setTasks((p) => Object.fromEntries(Object.entries(p).filter(([, t]) => {
+      if (t.status === "in_progress" || t.status === "review") return true; // keep running ones
+      if (scope === "all") return false;
+      if (scope === "auto") return t.createdBy === "user";
+      return !(t.status === "done" || t.status === "failed" || t.status === "blocked"); // "done" scope
+    })));
+    return api.clearTasks(scope).catch(() => {});
+  }, []);
   const createMission = useCallback((m) => api.createMission(m).catch((e) => console.error(e)), []);
   const control = useCallback((a, extra) => api.control(a, extra).catch(() => {}), []);
   const logout = useCallback(async () => {
