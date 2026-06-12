@@ -8,7 +8,7 @@ import {
   upsertDocument, recallMemory, appendMemory, addMemoryNote, createIssue, getAttachments, getTaskCredentials, deleteIssuesForTask,
   recordOutcome, getStats,
 } from "./store.js";
-import { runWork, runReview, generateTask, summarizeForMemory, planTask, synthesize, embed, consultAgent, classifyDepartment, recommendStack, suggestImprovements, pingModel } from "./meridian.js";
+import { runWork, runReview, generateTask, summarizeForMemory, planTask, synthesize, embed, consultAgent, classifyDepartment, keywordDept, recommendStack, suggestImprovements, pingModel } from "./meridian.js";
 import { toolsFor } from "./tools.js";
 import { extractZipText, isZip } from "./zipExport.js";
 import { DEPARTMENTS } from "./agents.js";
@@ -317,12 +317,23 @@ function maybeGenerate(agent) {
     .finally(() => generating.delete(agent.department));
 }
 
-// ---- Smart routing: send "Any department" tasks to the best specialist ----
+// ---- Smart routing: Jay Jay decides which department an "Any department" task
+// belongs to. A clear keyword match routes INSTANTLY (no LLM round-trip that can
+// stall and strand the task in the queue); only genuinely ambiguous tasks wait
+// on the model classifier.
 const routing = new Set();
 function routeTasks() {
   for (const t of getTasks()) {
     if (t.status !== "queued" || t.department || t.assignedTo || t.isPlan || t.parentId || t.createdBy === "cto") continue;
     if (routing.has(t.id)) continue;
+    // Fast path: obvious tasks (a build, a report, a scan…) route immediately.
+    const kw = keywordDept(`${t.title}\n${t.prompt || ""}`);
+    if (kw) {
+      updateTask(t.id, { department: kw });
+      addEvent({ kind: "system", text: `Jay Jay routed "${t.title}" → ${DEPARTMENTS[kw]?.label || kw}`, agentId: "jeremiah", taskId: t.id });
+      continue;
+    }
+    // Ambiguous: ask the model, but never let a slow/failed classify strand it.
     routing.add(t.id);
     classifyDepartment(t, GEMINI_FLASH_MODEL || GEMINI_MODEL)
       .then((dept) => {

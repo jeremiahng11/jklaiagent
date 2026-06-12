@@ -628,7 +628,7 @@ const DEPT_KEYWORDS = {
   security: ["security", "vulnerability", "audit", "risk", "compliance", "pentest", "threat", "secure", "privacy", "pdpa", "mas", "encrypt", "exposure", "breach", "hardening"],
   admin: ["organize", "organise", "index", "record", "archive", "reconcile", "ledger", "catalog", "spreadsheet", "inventory", "sort", "categorize", "clean up", "format the data"],
 };
-function keywordDept(text) {
+export function keywordDept(text) {
   const low = String(text).toLowerCase();
   let best = null, bestScore = 0;
   for (const [d, kws] of Object.entries(DEPT_KEYWORDS)) {
