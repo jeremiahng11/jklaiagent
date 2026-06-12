@@ -704,7 +704,7 @@ export async function recommendStack(task, model = null) {
   if (ai && model) {
     try {
       const txt = await generate(
-        "You are JAY JAY, the CTO, deciding how Development should build this. Is it a MOCKUP (one self-contained HTML/UI prototype) or a full APP/platform (multi-file project, often with a backend or data)? If a full app, recommend ONE stack: django, node, flutter, react, or react-native. Reply ONLY as JSON: {\"type\":\"mockup\"|\"app\",\"stack\":\"static\"|\"django\"|\"node\"|\"flutter\"|\"react\"|\"react-native\",\"reason\":\"<=12 words\"}. stack is \"static\" only when type is mockup. If the request is a mobile web / HTML mockup, a UI flow, or screens to preview, choose type=mockup.",
+        "You are JAY JAY, the CTO, deciding how Development should build this. DEFAULT to MOCKUP (one self-contained HTML/UI prototype). Only choose 'app' if the task EXPLICITLY requires a real backend — a server, database, user accounts/persistence, or real API endpoints — or explicitly names a framework. A UI / flow / screens / prototype is a MOCKUP even if it's called an 'app'. If app, recommend ONE stack: django, node, flutter, react, or react-native. Reply ONLY as JSON: {\"type\":\"mockup\"|\"app\",\"stack\":\"static\"|\"django\"|\"node\"|\"flutter\"|\"react\"|\"react-native\",\"reason\":\"<=12 words\"}. stack is \"static\" only when type is mockup.",
         text.slice(0, 1500),
         { json: true, temperature: 0, model }
       );
