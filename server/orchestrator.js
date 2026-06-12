@@ -12,7 +12,7 @@ import { runWork, runReview, generateTask, summarizeForMemory, planTask, synthes
 import { toolsFor } from "./tools.js";
 import { extractZipText, isZip } from "./zipExport.js";
 import { DEPARTMENTS } from "./agents.js";
-import { TICK_MS, AUTONOMOUS_DEFAULT, GEMINI_MODEL, GEMINI_DEMO_MODEL, GEMINI_FLASH_MODEL, GEMINI_DAILY_BUDGET_USD } from "./config.js";
+import { TICK_MS, MAX_CONCURRENT, AUTONOMOUS_DEFAULT, GEMINI_MODEL, GEMINI_DEMO_MODEL, GEMINI_FLASH_MODEL, GEMINI_DAILY_BUDGET_USD } from "./config.js";
 
 const MAX_ATTEMPTS = 2;
 const GEN_COOLDOWN_MS = 9000; // calmer autonomous cadence when AUTO is on
@@ -176,10 +176,14 @@ async function runTask(agent, task) {
     // events, so the office looks frozen. Tick a visible elapsed counter (and a
     // periodic note) while the agent works, so it's clearly alive.
     const workStart = Date.now();
+    let beats = 0;
     const beat = isUser ? setInterval(() => {
+      beats++;
       const secs = Math.round((Date.now() - workStart) / 1000);
+      // Live counter every 30s (cheap status update); a feed line only every 90s
+      // so the activity log isn't flooded during a multi-minute build.
       try { setAgent(agent.id, { status: "working", task: `${task.title} · ${secs}s` }); } catch {}
-      try { addEvent({ kind: "system", text: `${agent.name} is still working on "${task.title}" — ${secs}s elapsed${secs >= 120 ? " (big builds take a few minutes)" : ""}`, agentId: agent.id, taskId: task.id }); } catch {}
+      if (beats % 3 === 0) { try { addEvent({ kind: "system", text: `${agent.name} is still working on "${task.title}" — ${secs}s elapsed${secs >= 120 ? " (big builds take a few minutes)" : ""}`, agentId: agent.id, taskId: task.id }); } catch {} }
     }, 30000) : null;
     try {
       result = await runWork(agent, task, memoryText, workModel, priorWork, media, tools, toolCtx, upstream, build, attachedProjects);
@@ -528,6 +532,7 @@ async function tick() {
     // Not in the busy set ⇒ no active run. If the agent is wedged in a non-idle
     // state, free it so it can pick up queued work (fixes "stuck in queue").
     if (agent.status !== "idle") setAgent(agent.id, { status: "idle", task: "standing by", currentTaskId: null });
+    if (busy.size >= MAX_CONCURRENT) continue; // at capacity — don't start a new run this tick
     const task = nextTaskFor(agent);
     if (task) {
       runTask(agent, task); // fire-and-forget; busy set prevents double assignment

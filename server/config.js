@@ -47,6 +47,10 @@ export const GEMINI_DAILY_BUDGET_USD = Number(process.env.DAILY_BUDGET_USD || 0)
 export const SIMULATE = process.env.SIMULATE === "true";
 
 export const TICK_MS = Number(process.env.TICK_MS || 1500);
+// Max tasks running at once. Keeps a Pi responsive and avoids hammering the Max
+// plan with many simultaneous builds (what actually triggers rate limits). 3
+// lets a few departments work in parallel without overload; raise on big hosts.
+export const MAX_CONCURRENT = Number(process.env.MAX_CONCURRENT || 3);
 // OFF by default: the office only works on tasks YOU assign. Flip on with the
 // AUTO button (or AUTONOMOUS=true) for the self-running demo.
 export const AUTONOMOUS_DEFAULT = process.env.AUTONOMOUS === "true";
