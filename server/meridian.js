@@ -433,7 +433,7 @@ const CRAFT_BAR =
 // few minutes, and you extend with Follow-up. Set BUILD_SCOPE=full to opt back in.
 const BUILD_SCOPE = String(process.env.BUILD_SCOPE || "focused").toLowerCase();
 const CRAFT_FOCUSED =
-  "SCOPE: Build a FOCUSED but COMPLETE core flow — the 6-8 MOST IMPORTANT screens end to end with working navigation (e.g. welcome → sign-up/OTP → KYC → card application → activation + animated success → wallet DASHBOARD with the card eye-toggle). Each screen must still be RICH and real (proper header, sub-copy, components, realistic data, empty/loading/success states) — NOT a sparse placeholder. Keep the set tight so it finishes quickly; write ALL the code for these screens, no '...'. The user can request more screens/depth afterward via follow-up.\n" +
+  "SCOPE (HARD LIMIT): Build the 6-8 MOST IMPORTANT screens ONLY — even if the task lists more steps, do NOT attempt all of them in this build. Pick the core end-to-end flow (e.g. welcome → sign-up/OTP → KYC → card application → activation + animated success → wallet DASHBOARD with the card eye-toggle) and STOP at ~8 screens. The user will request the rest via follow-up. Building too many screens makes the build run long and fail — staying within 6-8 lets it FINISH completely. Each screen must still be RICH and real (proper header, sub-copy, components, realistic data, empty/loading/success states) — NOT a sparse placeholder. Write ALL the code for these screens, no '...'.\n" +
   "CRAFT (what separates pro from generic):\n" +
   "- Design tokens in :root: a DISTINCTIVE brand identity (NOT generic default blue), a characterful display font for headings + Inter for body via a Google Fonts <link>, a shadow scale, a consistent radius.\n" +
   "- Real motion on every screen change: transitions with iOS/spring easings (cubic-bezier(0.32,0.72,0,1)); staggered fade-up entrances; an animated success checkmark; skeletons while 'loading'.\n" +
@@ -615,13 +615,18 @@ export async function runWork(agent, task, memoryText = "", model = null, priorW
       const rules = webStack.has(build.stack) ? `\n\n${STYLING_RULES}` : "";
       const foundation = (build.stack === "static" || build.stack === "node") && isMultiScreenWeb ? `\n\n${WEB_FOUNDATION}` : "";
       system = `${agent.persona}\n\nBuild a COMPLETE, RUNNABLE project — production quality, not a prototype.\n${STACK_GUIDE[build.stack] || STACK_GUIDE.node}\n\n${DESIGN_BAR}${rules}\n\n${activeCraftBar()}${foundation}\n\n${ENG_MULTI}`;
-    } else if (singleRequested) {
-      const foundation = isMultiScreenWeb ? `\n\n${WEB_FOUNDATION}` : "";
-      system = `${agent.persona}\n\nBuild a COMPLETE, WORKING, BEAUTIFUL front-end — production quality, not a prototype.\n\n${DESIGN_BAR}\n\n${activeCraftBar()}\n\n${STYLING_RULES}${foundation}\n\nENGINEERING: The user asked for a SINGLE file, so deliver one self-contained index.html with all your hand-written CSS in an inline <style> (design tokens in :root) and JS in an inline <script> — NO Tailwind/CDN. Full code, no placeholders. Output it as "===== FILE: index.html =====" then its fenced code block. One-line intro only.`;
     } else {
-      // DEFAULT for web: a proper MULTI-FILE project, not one big HTML.
       const foundation = isMultiScreenWeb ? `\n\n${WEB_FOUNDATION}` : "";
-      system = `${agent.persona}\n\nBuild a COMPLETE, WORKING, BEAUTIFUL front-end — production quality, not a prototype.\n\n${DESIGN_BAR}\n\n${activeCraftBar()}\n\n${STYLING_RULES}${foundation}\n\nENGINEERING: Build a PROPER MULTI-FILE web project — do NOT cram everything into one HTML. Use separate files: index.html (and any other screens), css/styles.css (your real design classes), js/app.js (split into modules if helpful), and manifest.json for the PWA. Link css/styles.css and js/app.js with their exact paths. ${ENG_MULTI}`;
+      // Multi-file ONLY when explicitly asked for or when continuing an existing
+      // multi-file project. Otherwise default to a SINGLE self-contained file —
+      // robust on a long build (a cut-off multi-file build can lose the entry
+      // index.html entirely, like the 17-screen failure) and instantly previewable.
+      const wantMulti = !singleRequested && ((build && build.multiFile) || /\b(multi[- ]?file|separate (css|js|files)|proper (project|file) structure)\b/i.test(`${task.title} ${task.prompt}`));
+      if (wantMulti) {
+        system = `${agent.persona}\n\nBuild a COMPLETE, WORKING, BEAUTIFUL front-end — production quality, not a prototype.\n\n${DESIGN_BAR}\n\n${activeCraftBar()}\n\n${STYLING_RULES}${foundation}\n\nENGINEERING: Build a PROPER MULTI-FILE web project. Use separate files: index.html, css/styles.css, js/app.js, and manifest.json for the PWA. A COMPLETE index.html entry point is MANDATORY — write it FIRST and never omit it. Link css/styles.css and js/app.js with their exact paths. ${ENG_MULTI}`;
+      } else {
+        system = `${agent.persona}\n\nBuild a COMPLETE, WORKING, BEAUTIFUL front-end — production quality, not a prototype.\n\n${DESIGN_BAR}\n\n${activeCraftBar()}\n\n${STYLING_RULES}${foundation}\n\nENGINEERING: Deliver ONE self-contained index.html — ALL hand-written CSS in an inline <style> (design tokens in :root) and ALL JS in an inline <script>. NO Tailwind/CDN, no separate files. Full code, no placeholders, no "...". Output it as "===== FILE: index.html =====" then its fenced code block. One-line intro only.`;
+      }
     }
   }
   const userPrompt = `TASK: ${task.title}\n\nDETAILS:\n${task.prompt}${memBlock}${priorBlock}${fixBlock}${upstreamBlock}${projectBlock}${fileBlock}`;

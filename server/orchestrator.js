@@ -175,7 +175,7 @@ async function runTask(agent, task) {
         if (files > 1) {
           const stack = stackFromPrior(String(priorWork));
           build = stack ? { type: "app", stack, reason: "continue existing project" }
-                        : { type: "mockup", stack: "static", reason: "continue existing project" };
+                        : { type: "mockup", stack: "static", multiFile: true, reason: "continue existing project" };
         }
       }
       if (!build) build = await recommendStack(task, lightModel).catch(() => null);
