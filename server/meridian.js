@@ -116,9 +116,17 @@ let partialNoticeAt = 0;
 async function streamFinal(body, signal) {
   const system = body.system || "";
   const lastUser = [...(body.messages || [])].reverse().find((m) => m.role === "user");
-  const prompt = Array.isArray(lastUser?.content)
-    ? lastUser.content.filter((b) => b.type === "text").map((b) => b.text).join("\n").trim()
-    : String(lastUser?.content || "").trim();
+  const content = lastUser?.content;
+  const textPrompt = Array.isArray(content)
+    ? content.filter((b) => b.type === "text").map((b) => b.text).join("\n").trim()
+    : String(content || "").trim();
+  // Attachments (images / PDFs) are Anthropic content blocks. The SDK accepts
+  // them via a streaming-input prompt (AsyncIterable<SDKUserMessage>); a plain
+  // string prompt would silently drop them. Use the rich form only when needed.
+  const media = Array.isArray(content) ? content.filter((b) => b.type === "image" || b.type === "document") : [];
+  const promptArg = media.length
+    ? (async function* () { yield { type: "user", message: { role: "user", content }, parent_tool_use_id: null }; })()
+    : textPrompt;
 
   const ac = new AbortController();
   if (signal) { if (signal.aborted) ac.abort(); else signal.addEventListener("abort", () => ac.abort(), { once: true }); }
@@ -133,7 +141,7 @@ async function streamFinal(body, signal) {
   let partial = "", finalText = "", usage = null;
   try {
     const q = query({
-      prompt,
+      prompt: promptArg,
       options: {
         model: modelAlias(body.model),
         systemPrompt: system + OUTPUT_DIRECTIVE, // string fully replaces the default prompt
