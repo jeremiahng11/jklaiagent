@@ -6,13 +6,29 @@ import JSZip from "jszip";
 
 export function extractFiles(md) {
   const text = md || "";
-  const files = [];
-
-  // 1) Explicit markers (most reliable).
-  const markerRe = /=+\s*FILE:\s*(.+?)\s*=+\s*\n```[^\n]*\n([\s\S]*?)```/g;
+  let files = [];
   let m;
-  while ((m = markerRe.exec(text))) files.push({ path: m[1].trim(), content: m[2].replace(/\n$/, "") });
+
+  // 1) Explicit markers followed by a fenced code block (most reliable).
+  const markerFenceRe = /=+\s*FILE:\s*(.+?)\s*=+\s*\n```[^\n]*\n([\s\S]*?)```/g;
+  while ((m = markerFenceRe.exec(text))) files.push({ path: m[1].trim(), content: m[2].replace(/\n$/, "") });
   if (files.length) return dedupe(files);
+
+  // 1b) Markers WITHOUT fences — the model sometimes emits raw code right after
+  //     the marker (no ``` ). Split on the marker lines and take the body between
+  //     them, stripping a wrapping fence if there happens to be one.
+  if (/=+\s*FILE:\s*.+?=+/i.test(text)) {
+    const parts = text.split(/^[ \t]*=+\s*FILE:\s*(.+?)\s*=+[ \t]*$/gim);
+    for (let i = 1; i < parts.length; i += 2) {
+      const path = String(parts[i] || "").trim();
+      let body = String(parts[i + 1] || "");
+      const fence = body.match(/^\s*```[^\n]*\n([\s\S]*?)```\s*$/);
+      if (fence) body = fence[1];
+      body = body.replace(/^\n+/, "").replace(/\s+$/, "");
+      if (path && body) files.push({ path, content: body });
+    }
+    if (files.length) return dedupe(files);
+  }
 
   // 2) Fallback: a filename on the line just before a fenced block.
   const blockRe = /(^|\n)([^\n]*)\n```([^\n]*)\n([\s\S]*?)```/g;
@@ -28,6 +44,13 @@ export function extractFiles(md) {
     else if (heading) path = heading[1];
     else if (/^[\w./-]+\.[a-zA-Z0-9]+$/.test(prev)) path = prev;
     if (path) files.push({ path, content });
+  }
+  if (files.length) return dedupe(files);
+
+  // 3) Raw single file: no markers, no fences, but clearly HTML → index.html, so
+  //    it still downloads/previews as a web page instead of a .txt blob.
+  if (/^\s*<!doctype html|^\s*<html[\s>]/i.test(text) || /<\/html>\s*$/i.test(text)) {
+    return [{ path: "index.html", content: text.trim() }];
   }
   return dedupe(files);
 }
