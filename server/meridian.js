@@ -626,7 +626,6 @@ export async function runWork(agent, task, memoryText = "", model = null, priorW
       const foundation = isMultiScreenWeb ? `\n\n${WEB_FOUNDATION}` : "";
       system = `${agent.persona}\n\nBuild a COMPLETE, WORKING, BEAUTIFUL front-end — production quality, not a prototype.\n\n${DESIGN_BAR}\n\n${activeCraftBar()}\n\n${STYLING_RULES}${foundation}\n\nENGINEERING: Build a PROPER MULTI-FILE web project. WRITE index.html FIRST — a complete entry point is MANDATORY, never omit or truncate it — then css/styles.css, js/app.js, and manifest.json for the PWA. Link css/styles.css and js/app.js with their exact paths. ${ENG_MULTI}`;
     }
-    }
   }
   const userPrompt = `TASK: ${task.title}\n\nDETAILS:\n${task.prompt}${memBlock}${priorBlock}${fixBlock}${upstreamBlock}${projectBlock}${fileBlock}`;
 
