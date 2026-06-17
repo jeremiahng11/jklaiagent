@@ -168,9 +168,11 @@ async function runTask(agent, task) {
     // stack (Django / Node / Flutter / React / React Native).
     let build = task.build || null;
     if (isUser && agent.department === "development") {
-      // On a revision/follow-up KEEP the prior deliverable's STRUCTURE so a
-      // multi-file project isn't re-decided into a single HTML and lose files.
-      if (!build && priorWork) {
+      if (!build) build = await recommendStack(task, lightModel).catch(() => null);
+      // A follow-up MUST keep the prior deliverable's structure: if it was a
+      // multi-file project (zip), stay multi-file — never collapse to one HTML.
+      // This is authoritative: it overrides the classifier on every revision.
+      if (priorWork) {
         const files = (String(priorWork).match(/=====\s*FILE:/gi) || []).length;
         if (files > 1) {
           const stack = stackFromPrior(String(priorWork));
@@ -178,7 +180,6 @@ async function runTask(agent, task) {
                         : { type: "mockup", stack: "static", multiFile: true, reason: "continue existing project" };
         }
       }
-      if (!build) build = await recommendStack(task, lightModel).catch(() => null);
       if (build) {
         updateTask(task.id, { build }); // remember so every follow-up keeps the same structure
         addEvent({ kind: "system", text: `Jay Jay: build "${task.title}" as ${build.type === "app" ? build.stack.toUpperCase() + " app" : "a UI mockup"}${build.reason ? " — " + build.reason : ""}`, agentId: "jeremiah", taskId: task.id });

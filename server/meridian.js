@@ -615,18 +615,17 @@ export async function runWork(agent, task, memoryText = "", model = null, priorW
       const rules = webStack.has(build.stack) ? `\n\n${STYLING_RULES}` : "";
       const foundation = (build.stack === "static" || build.stack === "node") && isMultiScreenWeb ? `\n\n${WEB_FOUNDATION}` : "";
       system = `${agent.persona}\n\nBuild a COMPLETE, RUNNABLE project — production quality, not a prototype.\n${STACK_GUIDE[build.stack] || STACK_GUIDE.node}\n\n${DESIGN_BAR}${rules}\n\n${activeCraftBar()}${foundation}\n\n${ENG_MULTI}`;
-    } else {
+    } else if (singleRequested) {
+      // Only when the user explicitly asked for a single file.
       const foundation = isMultiScreenWeb ? `\n\n${WEB_FOUNDATION}` : "";
-      // Multi-file ONLY when explicitly asked for or when continuing an existing
-      // multi-file project. Otherwise default to a SINGLE self-contained file —
-      // robust on a long build (a cut-off multi-file build can lose the entry
-      // index.html entirely, like the 17-screen failure) and instantly previewable.
-      const wantMulti = !singleRequested && ((build && build.multiFile) || /\b(multi[- ]?file|separate (css|js|files)|proper (project|file) structure)\b/i.test(`${task.title} ${task.prompt}`));
-      if (wantMulti) {
-        system = `${agent.persona}\n\nBuild a COMPLETE, WORKING, BEAUTIFUL front-end — production quality, not a prototype.\n\n${DESIGN_BAR}\n\n${activeCraftBar()}\n\n${STYLING_RULES}${foundation}\n\nENGINEERING: Build a PROPER MULTI-FILE web project. Use separate files: index.html, css/styles.css, js/app.js, and manifest.json for the PWA. A COMPLETE index.html entry point is MANDATORY — write it FIRST and never omit it. Link css/styles.css and js/app.js with their exact paths. ${ENG_MULTI}`;
-      } else {
-        system = `${agent.persona}\n\nBuild a COMPLETE, WORKING, BEAUTIFUL front-end — production quality, not a prototype.\n\n${DESIGN_BAR}\n\n${activeCraftBar()}\n\n${STYLING_RULES}${foundation}\n\nENGINEERING: Deliver ONE self-contained index.html — ALL hand-written CSS in an inline <style> (design tokens in :root) and ALL JS in an inline <script>. NO Tailwind/CDN, no separate files. Full code, no placeholders, no "...". Output it as "===== FILE: index.html =====" then its fenced code block. One-line intro only.`;
-      }
+      system = `${agent.persona}\n\nBuild a COMPLETE, WORKING, BEAUTIFUL front-end — production quality, not a prototype.\n\n${DESIGN_BAR}\n\n${activeCraftBar()}\n\n${STYLING_RULES}${foundation}\n\nENGINEERING: The user asked for a SINGLE file — deliver one self-contained index.html with ALL CSS in an inline <style> (design tokens in :root) and ALL JS in an inline <script>. NO Tailwind/CDN. Full code, no placeholders, no "...". Output it as "===== FILE: index.html =====" then its fenced code block. One-line intro only.`;
+    } else {
+      // DEFAULT: a proper MULTI-FILE project — the expected "download the zip"
+      // output. index.html is written FIRST and mandatory so a long build can
+      // never drop the entry file; focused scope (6-8 screens) keeps it complete.
+      const foundation = isMultiScreenWeb ? `\n\n${WEB_FOUNDATION}` : "";
+      system = `${agent.persona}\n\nBuild a COMPLETE, WORKING, BEAUTIFUL front-end — production quality, not a prototype.\n\n${DESIGN_BAR}\n\n${activeCraftBar()}\n\n${STYLING_RULES}${foundation}\n\nENGINEERING: Build a PROPER MULTI-FILE web project. WRITE index.html FIRST — a complete entry point is MANDATORY, never omit or truncate it — then css/styles.css, js/app.js, and manifest.json for the PWA. Link css/styles.css and js/app.js with their exact paths. ${ENG_MULTI}`;
+    }
     }
   }
   const userPrompt = `TASK: ${task.title}\n\nDETAILS:\n${task.prompt}${memBlock}${priorBlock}${fixBlock}${upstreamBlock}${projectBlock}${fileBlock}`;
